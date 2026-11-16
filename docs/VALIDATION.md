@@ -33,7 +33,7 @@ Close other test fixtures before running an interactive probe. These native prob
 | Cancellation | delayed fake OCR ignores cancellation; stale result still cannot commit or emit green after session switch | `--worker-tests`, real SQLite plus fake capture/OCR |
 | UI supervision | actual UI client reconnects after its Worker is killed, loads committed session paused | `--worker-tests`; bounded automatic retry policy |
 | UI | controls fit the default inspector; synthetic click/scroll/new-session/start/close flow checked | WPF visual-tree render inspected. External screenshots intentionally exclude the app's windows. |
-| Distribution | self-contained win-x64 folder and ZIP generated | UI and Worker are independently published; see publish script. A genuinely fresh machine remains untested. |
+| Distribution | self-contained win-x64 folder and ZIP generated; packaged UI/Worker connect with `DOTNET_ROOT` pointing to a deliberately absent folder and multilevel lookup disabled | UI and Worker are independently published; see publish script. Both runtimeconfig files declare included frameworks. A genuinely fresh machine remains untested. |
 
 The recorded end-to-end run used a 720×480 region for approximately 28 seconds and reported P95 OCR + commit 66 ms and 142 MiB working set for the **single in-process probe**, including its WPF fixture. This excludes stability wait and does not represent the two-process production working set or 1080p performance. See raw output for exact duration. One native run and a short fixture are not an eight-hour soak or a statistically representative benchmark.
 
@@ -49,6 +49,8 @@ The recorded end-to-end run used a 720×480 region for approximately 28 seconds 
 | M5 | Portable publishing and basic recovery/privacy controls implemented | Fresh-machine launch, eight-hour soak, full memory/idle CPU/P95 1080p measurements, licensing/governance decision |
 
 ## Remaining risks and next work
+
+The first remote Windows CI failure occurred after all functional checks passed: final removal of the supervisor probe's SQLite file encountered a sharing violation. Worker shutdown now closes its pipe, waits up to three seconds for a normal exit, and only then kills a stalled process. The supervisor probe additionally requires exit code 0 and durable `closed` session state. Test-only cleanup retries transient OS file locks for at most five seconds and still fails persistent locks; its path guard restricts recursive removal to newly-created `glimpse-*` temp directories.
 
 - The 256×160 detector now sees small text changes missed by the first sparse prototype. It ignores a handful of changed sample pixels, but animated text/spinners may still postpone stability indefinitely. No claim of perfect animation filtering.
 - Global fallback alignment permits returning to evicted text. Ambiguous repeats and unanchored page switches retain evidence with uncertainty. Foreground window identity is only a heuristic; different pages within one application can still resemble a scroll gap.

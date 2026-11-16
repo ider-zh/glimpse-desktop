@@ -46,7 +46,7 @@ internal static class WorkerProbes
             fake.Finish.TrySetResult(); stop.Cancel();
             try { await loop; } catch (OperationCanceledException) { }
             await service.DisposeAsync();
-            SqliteConnection.ClearAllPools(); Directory.Delete(data, true);
+            await ProbeCleanup.DeleteAsync(data);
         }
     }
     private static async Task SupervisorProbe()
@@ -81,12 +81,19 @@ internal static class WorkerProbes
             await client.SendAsync("resume", new SessionRequest(id));
             var restored = (await Receive("update")).Read<ReaderUpdate>();
             if (restored.Session?.Id != id || restored.State != "Paused") throw new InvalidOperationException("Supervised restore failed.");
+            using var closing = Process.GetProcessById(client.ProcessId ?? throw new InvalidOperationException("Missing restored Worker."));
+            await client.DisposeAsync();
+            await closing.WaitForExitAsync(timeout.Token);
+            if (client.LastExitCode != 0) throw new InvalidOperationException("Normal UI shutdown killed the Worker instead of closing it cleanly.");
+            var saved = await new SessionRepository(Path.Combine(data, "sessions.db")).LoadAsync(id);
+            if (saved?.Status != "closed") throw new InvalidOperationException("Worker did not commit closed session during normal shutdown.");
             Console.WriteLine("SUPERVISION PASS: UI client recovered from owned worker kill, reconnected, loaded the committed session paused.");
+            Console.WriteLine("SHUTDOWN PASS: Worker exited normally and committed session closure before database cleanup.");
         }
         finally
         {
-            await client.DisposeAsync(); SqliteConnection.ClearAllPools();
-            if (Directory.Exists(data)) Directory.Delete(data, true);
+            await client.DisposeAsync();
+            await ProbeCleanup.DeleteAsync(data);
         }
     }
     private sealed class FakeCapture : IScreenCapture

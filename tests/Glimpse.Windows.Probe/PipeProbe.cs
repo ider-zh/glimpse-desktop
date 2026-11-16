@@ -81,6 +81,7 @@ internal static class PipeProbe
                     try { await process.WaitForExitAsync(exitTimeout.Token); }
                     catch (OperationCanceledException) { process.Kill(true); }
                 }
+                await process.WaitForExitAsync(CancellationToken.None);
             }
         }
         try
@@ -90,8 +91,7 @@ internal static class PipeProbe
         }
         finally
         {
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            Directory.Delete(data, true);
+            await ProbeCleanup.DeleteAsync(data);
         }
     }
 }

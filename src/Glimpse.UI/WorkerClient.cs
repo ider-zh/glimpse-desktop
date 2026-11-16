@@ -17,8 +17,10 @@ public sealed class WorkerClient : IAsyncDisposable
     private readonly CancellationTokenSource stop = new();
     private Task? supervision;
     private long lastReply;
+    private int disposed;
     private readonly ConcurrentDictionary<Guid, TaskCompletionSource<Envelope>> pending = new();
     public int? ProcessId => process is { HasExited: false } ? process.Id : null;
+    public int? LastExitCode { get; private set; }
     public event Action<Envelope>? Received;
     public event Action<string>? ConnectionChanged;
     public string DataDirectory { get; } = Environment.GetEnvironmentVariable("GLIMPSE_DATA_DIR") ??
@@ -72,9 +74,26 @@ public sealed class WorkerClient : IAsyncDisposable
                     if (pending.TryRemove(entry.Key, out var completion))
                         completion.TrySetException(new IOException("Worker disconnected."));
                 await writing.WaitAsync(CancellationToken.None);
-                try { writer = null; pipe?.Dispose(); pipe = null; }
+                try
+                {
+                    try { writer?.Dispose(); }
+                    catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                    writer = null; pipe?.Dispose(); pipe = null;
+                }
                 finally { writing.Release(); }
-                if (process is { HasExited: false }) { process.Kill(true); await process.WaitForExitAsync(CancellationToken.None); }
+                if (process is not null)
+                {
+                    // Closing the pipe asks the Worker to commit its closed session and
+                    // release SQLite. Kill only a Worker that cannot finish within the bound.
+                    using var exitTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                    try { await process.WaitForExitAsync(exitTimeout.Token); }
+                    catch (OperationCanceledException)
+                    {
+                        if (!process.HasExited) process.Kill(true);
+                        await process.WaitForExitAsync(CancellationToken.None);
+                    }
+                    LastExitCode = process.ExitCode;
+                }
                 process?.Dispose(); process = null;
             }
             if (!stop.IsCancellationRequested) await Task.Delay(TimeSpan.FromSeconds(Math.Min(1 << attempt, 8)), stop.Token);
@@ -110,6 +129,7 @@ public sealed class WorkerClient : IAsyncDisposable
     }
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         stop.Cancel(); pipe?.Dispose();
         if (supervision is not null) { try { await supervision; } catch (OperationCanceledException) { } }
         writing.Dispose(); stop.Dispose();
