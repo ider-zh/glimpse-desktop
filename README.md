@@ -2,9 +2,9 @@
 
 **A Windows desktop lens that remembers what you scroll past.**
 
-Glimpse is a Windows desktop reader. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. The planned user-triggered Agent will use relevant session context to propose comments, replies, summaries, or suggestions as copyable cards.
+Glimpse is a Windows desktop reader. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. A user-triggered Agent uses reviewed session context to propose comments, replies, summaries, or suggestions as copyable cards.
 
-> Status: **working Session Reader development preview**. .NET 10/WPF UI, supervised Worker, local OCR, sequence reconciliation and SQLite resume are implemented. 23 core tests, nine labeled synthetic scenarios and on-device Windows probes pass. **V0.1 is not complete**: mixed-DPI acceptance, broader OCR accuracy validation, Agent integration and eight-hour hardening remain open. See [measured validation and milestone gates](docs/VALIDATION.md).
+> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable DeepSeek / Xiaomi MiMo / custom Chat Completions API / CodeBuddy CLI engines, reviewed context and validated cards are implemented. 52 core tests, offline provider/controller tests and a real Worker-to-loopback API flow pass. Installed CodeBuddy preview/cancellation and offline-card clipboard checks pass; authenticated generation is currently blocked by CLI HTTP 401. **V0.1 is not complete**: live provider acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
 
 ## Run and verify
 
@@ -13,9 +13,10 @@ Requires Windows x64, Windows 10 build 19041 or later, an installed Windows OCR 
 ```powershell
 dotnet build Glimpse.slnx -c Release
 dotnet run --project src/Glimpse.UI -c Release
-./scripts/verify.ps1                   # build, 23 tests, synthetic benchmark, IPC/cancel/restart probes
+./scripts/verify.ps1                   # build, 52 tests, corpus, provider/Agent/IPC/cancel/restart probes
 ./scripts/verify.ps1 -InteractiveWindows # additionally opens synthetic Windows capture/OCR probes
 ./scripts/publish.ps1                  # artifacts/portable/Glimpse.UI.exe and portable ZIP
+# If that folder is currently running: ./scripts/publish.ps1 -OutputName agent-preview
 ```
 
 On Linux, run only `dotnet test tests/Glimpse.Tests -c Release` and `dotnet run --project tools/Glimpse.Benchmarks -c Release`; these do not verify Windows behavior. CI includes both Linux core and Windows build/package jobs.
@@ -23,6 +24,14 @@ On Linux, run only `dotnet test tests/Glimpse.Tests -c Release` and `dotnet run 
 Select a region, choose OCR language, then explicitly start observation. Pause/close stops capture; reopening a session starts paused. Move the lens by its top border, resize from its edges, and operate the underlying application through the hollow interior. Inspect accumulated text, the recent nine snapshots, source evidence and possible gaps. Export the current document or delete a saved session. See the [Chinese user guide](docs/USER_GUIDE.md).
 
 Default data: `%LOCALAPPDATA%\Glimpse\sessions.db`. `GLIMPSE_DATA_DIR` overrides the data folder; `GLIMPSE_OCR_LANGUAGE` selects an installed language. Normal observation never writes screenshots or contacts a provider. SQLite contains the OCR text you explicitly chose to observe.
+
+## Agent engines
+
+In the **Agent** tab, configure an engine and click **保存并切换**. API profiles accept a base URL, model and a write-only API key protected with Windows DPAPI. DeepSeek and Xiaomi MiMo presets are editable; a custom OpenAI-compatible Chat Completions profile supports other providers and local APIs. CodeBuddy CLI uses your existing installation/login; npm installations are detected as a Node.js executable plus JavaScript entry, without a shell wrapper.
+
+Select a task, optionally enter a question, then preview the filtered, budgeted context and explicitly generate. The exact reviewed messages are sent once; changing session or engine invalidates them. Cancellation does not block capture/pause. Copy validated cards or inspect a visibly marked plain-text fallback. Previous completed results are restored locally when reopening a session. No screenshots, tool calls, application control or automatic posting are sent. CI needs no real API keys or external model requests.
+
+Automatic small-text OCR enhancement is enabled; original size and fixed 2× are available in the inspector. `GLIMPSE_OCR_SCALE` accepts 0/1/2. Generated small-font corpus measurements are recorded separately from real-page accuracy claims.
 
 ## V0.1 decisions
 
@@ -55,7 +64,7 @@ The implemented **Session Reader without LLM integration** covers:
 5. Show state, snapshot count, new/duplicate blocks and suspected reading gaps in a diagnostic inspector.
 6. Verified on this CPU-only Windows device at 100% DPI, including a negative-coordinate second monitor. **125%/150% mixed-DPI hardware acceptance remains unverified.**
 
-Only after that checkpoint's remaining acceptance gates pass, add LLM providers and result cards. They are not present in this preview, following the repository's required milestone order.
+The owner subsequently requested Agent implementation alongside the remaining hardware gates. That explicit scope change is recorded in [ADR 0004](docs/adr/0004-agent-engines.md); it does not mark unverified Reader gates complete.
 
 ## Project principles
 

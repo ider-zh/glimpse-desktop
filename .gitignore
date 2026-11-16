@@ -5,3 +5,6 @@ artifacts/
 *.user
 *.db*
 TestResults/
+**/agent-providers.json
+**/ocr-language.txt
+**/ocr-scale.txt

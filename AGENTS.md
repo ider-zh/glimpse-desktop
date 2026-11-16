@@ -21,4 +21,8 @@ This repository is initially a design-only baseline. Implement it according to [
 
 ## Starting task
 
+### Current owner direction (2026-11-16)
+
+The owner explicitly requested implementing Agent now, switchable OpenAI-compatible APIs (DeepSeek/Xiaomi MiMo), CodeBuddy CLI, and subagent development. M4 implementation is therefore authorized alongside the still-open hardware gates. Do not remove or disable Agent solely because those gates are open, and do not claim the gates passed. Preserve user-triggered previews, DPAPI keys, untrusted-screen boundaries, cancellation and offline tests. See ADR 0004 for the implemented contracts.
+
 Read all three docs, inspect repo state, then execute **M0**. If M0 already done, proceed to the earliest unfinished milestone. Do not prematurely implement LLM. At each milestone, update README status and document verified tests and unresolved blockers.

@@ -110,6 +110,10 @@ public sealed class WorkerClient : IAsyncDisposable
         }
     }
     public async Task SendAsync<T>(string type, T payload, CancellationToken cancellation = default)
+        => _ = await RequestAsync(type, payload, cancellation: cancellation);
+
+    public async Task<Envelope> RequestAsync<T>(string type, T payload, TimeSpan? timeout = null,
+        CancellationToken cancellation = default)
     {
         var message = Envelope.Create(type, payload);
         var completion = new TaskCompletionSource<Envelope>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -123,7 +127,11 @@ public sealed class WorkerClient : IAsyncDisposable
                 await writer.WriteLineAsync(JsonSerializer.Serialize(message, Envelope.Json));
             }
             finally { writing.Release(); }
-            await completion.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellation);
+            var response = await completion.Task.WaitAsync(timeout ?? TimeSpan.FromSeconds(15), cancellation);
+            if (response.MessageType == "error")
+                throw new InvalidOperationException(response.Payload.TryGetProperty("message", out var error) ?
+                    error.GetString() ?? "Worker request failed." : "Worker request failed.");
+            return response;
         }
         finally { pending.TryRemove(message.RequestId, out _); }
     }

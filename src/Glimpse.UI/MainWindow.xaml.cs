@@ -24,6 +24,18 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        UpdateViewLayout();
+        AgentView.LoadSettingsAsync = async cancellation =>
+            (await worker.RequestAsync("agent-settings-get", new { }, cancellation: cancellation)).Read<AgentSettings>();
+        AgentView.SaveSettingsAsync = async (update, cancellation) =>
+            (await worker.RequestAsync("agent-settings-save", update, cancellation: cancellation)).Read<AgentSettings>();
+        AgentView.PreviewAsync = async (request, cancellation) =>
+            (await worker.RequestAsync("agent-preview", request, cancellation: cancellation)).Read<AgentContextPreview>();
+        AgentView.GenerateAsync = async (previewId, cancellation) =>
+        {
+            using var registration = cancellation.Register(() => _ = CancelAgentAsync(previewId));
+            return (await worker.RequestAsync("agent-run", new { previewId }, TimeSpan.FromMinutes(4), cancellation)).Read<AgentResult>();
+        };
         SourceInitialized += (_, _) =>
         {
             try { Native.Exclude(this); excluded = true; }
@@ -64,11 +76,17 @@ public partial class MainWindow : Window
                 string? preferred = envelope.Payload.GetProperty("language").GetString();
                 OcrLanguages.SelectedItem = languages.Find(l => l == preferred) ??
                     languages.Find(l => l.StartsWith(System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName, StringComparison.OrdinalIgnoreCase)) ?? languages.FirstOrDefault();
+                var modes = new[] { new OcrMode(0, "自动 · 小字增强"), new OcrMode(1, "原始尺寸"), new OcrMode(2, "固定 2 倍增强") };
+                OcrModes.ItemsSource = modes;
+                int preferredScale = envelope.Payload.TryGetProperty("scale", out var scaleValue) ? scaleValue.GetInt32() : 0;
+                OcrModes.SelectedItem = modes.FirstOrDefault(m => m.Scale == preferredScale) ?? modes[0];
                 loadingLanguages = false;
                 if (OcrLanguages.SelectedItem is string selectedLanguage) await Send("language", new { language = selectedLanguage });
+                if (OcrModes.SelectedItem is OcrMode mode) await Send("ocr-mode", new { scale = mode.Scale });
                 Status.Text = "Worker 已连接。选择区域后开始观察。";
                 StateDot.Fill = Brushes.SlateGray;
                 await Send("list", new { });
+                await AgentView.ReloadSettingsAsync();
                 if (current is not null) await Send("resume", new SessionRequest(current.Id));
                 break;
             case "sessions":
@@ -77,7 +95,9 @@ public partial class MainWindow : Window
                 Sessions.ItemsSource = list;
                 Sessions.SelectedItem = list.Find(s => s.Id == selected) ?? list.FirstOrDefault();
                 break;
-            case "error": ShowError(envelope.Payload.GetProperty("message").GetString() ?? "Worker error"); break;
+            // Correlated request errors are handled by their caller. In particular, an
+            // Agent configuration error must not mislabel a still-running Reader paused.
+            case "error": break;
             case "update":
                 var update = envelope.Read<ReaderUpdate>();
                 if (update.Generation < generation) return;
@@ -88,6 +108,14 @@ public partial class MainWindow : Window
                     current = update.Session;
                     if (switched) { rect = current.Rect; if (lens is not null) lens.Restore(rect); }
                     Render();
+                    if (switched)
+                    {
+                        Guid restoredId = current.Id;
+                        var history = (await worker.RequestAsync("agent-history", new SessionRequest(restoredId))).Read<List<AgentResult>>();
+                        var savedResult = history.FirstOrDefault(result => result.Status is "completed" or "fallback");
+                        if (current?.Id == restoredId && savedResult is not null) AgentView.ShowStoredResult(savedResult);
+                        if (update.Generation != generation) return;
+                    }
                 }
                 observing = update.State is not ("Paused" or "Error");
                 ObserveButton.Content = observing ? "暂停观察" : "开始观察";
@@ -116,6 +144,7 @@ public partial class MainWindow : Window
     private void Render()
     {
         if (current is null) return;
+        AgentView.SetSession(current);
         SessionTitle.Text = current.Title;
         Geometry.Text = $"物理像素 ({rect.X}, {rect.Y}) · {rect.Width} × {rect.Height}";
         Counts.Text = $"最近快照 {current.Snapshots.Count}/9 · 累计 {current.Blocks.Count} 块 · {current.Blocks.Sum(b => b.Text.Length)} 字符 · 修订 {current.Revision}";
@@ -129,11 +158,27 @@ public partial class MainWindow : Window
         Gaps.Text = current.Gaps.Count == 0 ? "暂无警告。没有警告也不代表内容完整。快速滚过的内容无法重建。" :
             string.Join("\n\n", current.Gaps.Select(g => $"#{g.FromSequence} → #{g.ToSequence} · 可能遗漏（推测）\n{g.Reason}"));
     }
+    private async Task CancelAgentAsync(Guid previewId)
+    {
+        try { await worker.SendAsync("agent-cancel", new { previewId }); }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException) { }
+    }
+    private void ViewChanged(object sender, SelectionChangedEventArgs e)
+    { if (ReferenceEquals(e.Source, Views)) UpdateViewLayout(); }
+    private void UpdateViewLayout()
+    {
+        if (ReaderControls is null || CompactCapture is null || AgentTab is null) return;
+        bool agentVisible = ReferenceEquals(Views.SelectedItem, AgentTab);
+        ReaderControls.Visibility = agentVisible ? Visibility.Collapsed : Visibility.Visible;
+        CompactCapture.Visibility = agentVisible ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private async void PauseObservation(object sender, RoutedEventArgs e)
+    { resumeAfterMove = false; await Send("pause", new { }); }
     private async Task<bool> Send<T>(string command, T payload)
     {
         try { await worker.SendAsync(command, payload); return true; }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException or TimeoutException)
-        { ShowError("Worker 未连接。请等待重连后重试。"); return false; }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or TimeoutException or InvalidOperationException)
+        { ShowError(ex is InvalidOperationException ? ex.Message : "Worker 未连接。请等待重连后重试。"); return false; }
     }
     private void ShowError(string message)
     {
@@ -144,6 +189,11 @@ public partial class MainWindow : Window
     {
         if (!loadingLanguages && OcrLanguages.SelectedItem is string language)
             await Send("language", new { language });
+    }
+    private async void OcrModeSelected(object sender, SelectionChangedEventArgs e)
+    {
+        if (!loadingLanguages && OcrModes.SelectedItem is OcrMode mode)
+            await Send("ocr-mode", new { scale = mode.Scale });
     }
     private bool EnsureLens()
     {
@@ -226,6 +276,7 @@ public partial class MainWindow : Window
         if (current?.Id == selected.Id)
         {
             current = null; lens?.Close(); lens = null; Document.Clear(); SnapshotDetail.Clear();
+            AgentView.SetSession(null);
             Snapshots.ItemsSource = null; Counts.Text = "会话已删除"; SessionTitle.Text = "选择区域，开始一段阅读";
         }
     }
@@ -253,9 +304,11 @@ public partial class MainWindow : Window
     {
         if (closing) return;
         e.Cancel = true; closing = true; rectTimer.Stop();
+        AgentView.CancelPending();
         lens?.Close();
         await worker.DisposeAsync();
         Close();
     }
     private record SnapshotRow(Snapshot Snapshot, string Label);
+    private record OcrMode(int Scale, string Label);
 }

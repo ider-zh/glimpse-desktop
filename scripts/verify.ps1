@@ -14,9 +14,12 @@ try {
     $workerPath = Join-Path $PWD 'src/Glimpse.Worker/bin/Release/net10.0-windows10.0.19041.0/Glimpse.Worker.exe'
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --ipc $workerPath
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --worker-tests
+    Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --provider-tests
+    Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-tests
     if ($InteractiveWindows) {
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --reader
+        Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --ocr-corpus
     }
 }
 finally { Pop-Location }

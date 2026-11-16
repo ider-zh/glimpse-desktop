@@ -1,7 +1,9 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Glimpse.Agent/Glimpse.Agent.csproj" />
     <Project Path="src/Glimpse.Contracts/Glimpse.Contracts.csproj" />
     <Project Path="src/Glimpse.Core/Glimpse.Core.csproj" />
+    <Project Path="src/Glimpse.Providers/Glimpse.Providers.csproj" />
     <Project Path="src/Glimpse.Storage/Glimpse.Storage.csproj" />
     <Project Path="src/Glimpse.UI/Glimpse.UI.csproj" />
     <Project Path="src/Glimpse.Worker/Glimpse.Worker.csproj" />
