@@ -1,0 +1,29 @@
+name: Build and verify
+on:
+  push:
+  pull_request:
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test tests/Glimpse.Tests -c Release --nologo
+      - run: dotnet run --project tools/Glimpse.Benchmarks -c Release
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - shell: pwsh
+        run: ./scripts/verify.ps1
+      - shell: pwsh
+        run: ./scripts/publish.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Glimpse-SessionReader-win-x64
+          path: artifacts/Glimpse-SessionReader-win-x64.zip

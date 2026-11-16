@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>../Glimpse.Worker/app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Glimpse.Contracts/Glimpse.Contracts.csproj" />
+    <ProjectReference Include="../Glimpse.Worker/Glimpse.Worker.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyWorker" AfterTargets="Build">
+    <PropertyGroup><WorkerOutput>../Glimpse.Worker/bin/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)</WorkerOutput></PropertyGroup>
+    <ItemGroup><WorkerFiles Include="$(WorkerOutput)/**/*" Exclude="$(WorkerOutput)/**/*.pdb;$(WorkerOutput)/win-*/**/*" /></ItemGroup>
+    <Copy SourceFiles="@(WorkerFiles)" DestinationFiles="@(WorkerFiles->'$(OutDir)Worker/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

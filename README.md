@@ -2,9 +2,27 @@
 
 **A Windows desktop lens that remembers what you scroll past.**
 
-Glimpse is a planned Windows desktop assistant. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. A user-triggered Agent then uses relevant session context to propose comments, replies, summaries, or suggestions as copyable cards.
+Glimpse is a Windows desktop reader. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. The planned user-triggered Agent will use relevant session context to propose comments, replies, summaries, or suggestions as copyable cards.
 
-> Status: **design / implementation not started**. This repository currently contains specifications and an execution plan, not a working application.
+> Status: **working Session Reader development preview**. .NET 10/WPF UI, supervised Worker, local OCR, sequence reconciliation and SQLite resume are implemented. 23 core tests, nine labeled synthetic scenarios and on-device Windows probes pass. **V0.1 is not complete**: mixed-DPI acceptance, broader OCR accuracy validation, Agent integration and eight-hour hardening remain open. See [measured validation and milestone gates](docs/VALIDATION.md).
+
+## Run and verify
+
+Requires Windows x64, Windows 10 build 19041 or later, an installed Windows OCR language and the .NET 10 SDK for source builds. A published portable folder includes the runtime.
+
+```powershell
+dotnet build Glimpse.slnx -c Release
+dotnet run --project src/Glimpse.UI -c Release
+./scripts/verify.ps1                   # build, 23 tests, synthetic benchmark, IPC/cancel/restart probes
+./scripts/verify.ps1 -InteractiveWindows # additionally opens synthetic Windows capture/OCR probes
+./scripts/publish.ps1                  # artifacts/portable/Glimpse.UI.exe and portable ZIP
+```
+
+On Linux, run only `dotnet test tests/Glimpse.Tests -c Release` and `dotnet run --project tools/Glimpse.Benchmarks -c Release`; these do not verify Windows behavior. CI includes both Linux core and Windows build/package jobs.
+
+Select a region, choose OCR language, then explicitly start observation. Pause/close stops capture; reopening a session starts paused. Move the lens by its top border, resize from its edges, and operate the underlying application through the hollow interior. Inspect accumulated text, the recent nine snapshots, source evidence and possible gaps. Export the current document or delete a saved session. See the [Chinese user guide](docs/USER_GUIDE.md).
+
+Default data: `%LOCALAPPDATA%\Glimpse\sessions.db`. `GLIMPSE_DATA_DIR` overrides the data folder; `GLIMPSE_OCR_LANGUAGE` selects an installed language. Normal observation never writes screenshots or contacts a provider. SQLite contains the OCR text you explicitly chose to observe.
 
 ## V0.1 decisions
 
@@ -28,16 +46,16 @@ Glimpse is a planned Windows desktop assistant. The user selects one fixed scree
 
 ## First implementation checkpoint
 
-Build a **Session Reader without LLM integration**:
+The implemented **Session Reader without LLM integration** covers:
 
 1. Draw/move/resize a single transparent lens and click-through interior.
 2. Capture frames from the physical screen rectangle, detect changes and wait for 1 second of stability.
 3. OCR local text, align overlapping scroll snapshots, maintain deduplicated ordered content blocks.
 4. Persist/reopen a session in SQLite, retaining 9 effective OCR snapshots.
 5. Show state, snapshot count, new/duplicate blocks and suspected reading gaps in a diagnostic inspector.
-6. Verify on mixed-DPI, multi-monitor and CPU-only Windows systems.
+6. Verified on this CPU-only Windows device at 100% DPI, including a negative-coordinate second monitor. **125%/150% mixed-DPI hardware acceptance remains unverified.**
 
-Only after that checkpoint passes, add LLM providers and result cards.
+Only after that checkpoint's remaining acceptance gates pass, add LLM providers and result cards. They are not present in this preview, following the repository's required milestone order.
 
 ## Project principles
 
