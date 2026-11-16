@@ -6,8 +6,12 @@
     <ApplicationManifest>../Glimpse.Worker/app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <ProjectReference Include="../Glimpse.Contracts/Glimpse.Contracts.csproj" />
     <ProjectReference Include="../Glimpse.Worker/Glimpse.Worker.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="TerminalAssets/**/*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="CopyWorker" AfterTargets="Build">
     <PropertyGroup><WorkerOutput>../Glimpse.Worker/bin/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)</WorkerOutput></PropertyGroup>

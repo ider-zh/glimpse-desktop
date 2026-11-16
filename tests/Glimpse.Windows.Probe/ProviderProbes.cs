@@ -21,6 +21,7 @@ internal static class ProviderProbes
         await HttpProbe();
         await SettingsProbe();
         await CliProbe();
+        await ModelCatalogProbe.Run();
         Console.WriteLine("PROVIDERS PASS: offline Chat Completions, auth/header/path/limits/cancel/timeout; DPAPI write-only settings; CLI argument isolation, stdin, exit/error/kill/output bounds.");
     }
     private static async Task HttpProbe()

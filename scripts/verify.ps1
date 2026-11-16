@@ -15,6 +15,7 @@ try {
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --ipc $workerPath
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --worker-tests
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --provider-tests
+    Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-terminal-tests
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-tests
     if ($InteractiveWindows) {
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build
