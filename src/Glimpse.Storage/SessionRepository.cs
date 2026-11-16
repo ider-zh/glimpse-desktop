@@ -19,7 +19,7 @@ public sealed class SessionRepository : ISessionRepository
         using var version = db.CreateCommand();
         version.CommandText = "PRAGMA user_version";
         int existing = Convert.ToInt32(version.ExecuteScalar());
-        if (existing > 1) throw new InvalidDataException("Database was created by a newer Glimpse version.");
+        if (existing > 2) throw new InvalidDataException("Database was created by a newer Glimpse version.");
         using var schema = db.CreateCommand();
         schema.CommandText = """
             PRAGMA journal_mode=WAL;
@@ -43,9 +43,15 @@ public sealed class SessionRepository : ISessionRepository
             CREATE TABLE IF NOT EXISTS capture_gaps (
                 id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
                 data_json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS agent_turns (
+                id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                created_at_ms INTEGER NOT NULL, document_revision INTEGER NOT NULL,
+                provider_id TEXT NOT NULL, model_id TEXT, task_type TEXT NOT NULL,
+                output_schema TEXT NOT NULL, status TEXT NOT NULL, result_json TEXT NOT NULL);
+            CREATE INDEX IF NOT EXISTS idx_agent_session_time ON agent_turns(session_id,created_at_ms DESC);
             CREATE INDEX IF NOT EXISTS idx_blocks_session_order ON content_blocks(session_id, order_key);
             CREATE INDEX IF NOT EXISTS idx_snapshots_session_seq ON ocr_snapshots(session_id, sequence_no DESC);
-            PRAGMA user_version=1;
+            PRAGMA user_version=2;
             """;
         schema.ExecuteNonQuery();
     }
@@ -181,6 +187,52 @@ public sealed class SessionRepository : ISessionRepository
             using var target = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = destination }.ToString());
             target.Open();
             source.BackupDatabase(target);
+        }
+        finally { access.Release(); }
+    }
+
+    public async Task SaveAgentResultAsync(AgentResult result, string? model,
+        CancellationToken cancellation = default)
+    {
+        await access.WaitAsync(cancellation);
+        try
+        {
+            using var db = Open(); using var command = db.CreateCommand();
+            command.CommandText = """
+                INSERT INTO agent_turns
+                SELECT $id,$session,$time,$revision,$provider,$model,$task,$schema,$status,$result
+                WHERE EXISTS(SELECT 1 FROM sessions WHERE id=$session)
+                ON CONFLICT(id) DO NOTHING
+                """;
+            command.Parameters.AddWithValue("$id", result.PreviewId.ToString());
+            command.Parameters.AddWithValue("$session", result.SessionId.ToString());
+            command.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            command.Parameters.AddWithValue("$revision", result.DocumentRevision);
+            command.Parameters.AddWithValue("$provider", result.ProviderId);
+            command.Parameters.AddWithValue("$model", (object?)model ?? DBNull.Value);
+            command.Parameters.AddWithValue("$task", result.TaskType);
+            command.Parameters.AddWithValue("$schema", result.Schema);
+            command.Parameters.AddWithValue("$status", result.Status);
+            command.Parameters.AddWithValue("$result", Json(result));
+            await command.ExecuteNonQueryAsync(cancellation);
+        }
+        finally { access.Release(); }
+    }
+
+    public async Task<List<AgentResult>> ListAgentResultsAsync(Guid sessionId, int limit = 20,
+        CancellationToken cancellation = default)
+    {
+        await access.WaitAsync(cancellation);
+        try
+        {
+            using var db = Open(); using var command = db.CreateCommand();
+            command.CommandText = "SELECT result_json FROM agent_turns WHERE session_id=$id ORDER BY created_at_ms DESC,rowid DESC LIMIT $limit";
+            command.Parameters.AddWithValue("$id", sessionId.ToString());
+            command.Parameters.AddWithValue("$limit", Math.Clamp(limit, 1, 100));
+            using var reader = await command.ExecuteReaderAsync(cancellation);
+            List<AgentResult> results = [];
+            while (await reader.ReadAsync(cancellation)) results.Add(Read<AgentResult>(reader.GetString(0)));
+            return results;
         }
         finally { access.Release(); }
     }

@@ -34,13 +34,13 @@ internal static class PipeProbe
                     while (await reader.ReadLineAsync(timeout.Token) is { } line)
                     {
                         var e = JsonSerializer.Deserialize<Envelope>(line, Envelope.Json)!;
-                        if (e.MessageType == "error") throw new InvalidOperationException(e.Payload.ToString());
+                        if (e.MessageType == "error" && type != "error") throw new InvalidOperationException(e.Payload.ToString());
                         if (e.MessageType == type) return e;
                     }
                     throw new IOException("Unexpected worker EOF.");
                 }
                 async Task Send(Envelope message) => await writer.WriteLineAsync(JsonSerializer.Serialize(message, Envelope.Json));
-                await Receive("ready");
+                var ready = await Receive("ready");
                 if (!restart)
                 {
                     var create = Envelope.Create("new", new StartRequest("Safe IPC fixture", rect));
@@ -48,6 +48,12 @@ internal static class PipeProbe
                     var update = (await Receive("update")).Read<ReaderUpdate>();
                     sessionId = update.Session!.Id;
                     await Receive("sessions");
+                    await Send(Envelope.Create("ocr-mode", new { scale = 2 }));
+                    var modeUpdate = (await Receive("update")).Read<ReaderUpdate>();
+                    if (modeUpdate.State != "Paused") throw new InvalidOperationException("Changing OCR mode unexpectedly started capture.");
+                    await Receive("sessions");
+                    await Send(Envelope.Create("ocr-mode", new { scale = 99 }));
+                    await Receive("error");
                     await Send(create); // Retry the same request must not create another session.
                     var repeated = (await Receive("sessions")).Read<List<SessionSummary>>();
                     if (repeated.Count != 1) throw new InvalidOperationException("Idempotency failure.");
@@ -57,6 +63,8 @@ internal static class PipeProbe
                 }
                 else
                 {
+                    if (ready.Payload.GetProperty("scale").GetInt32() != 2)
+                        throw new InvalidOperationException("OCR mode did not survive Worker restart.");
                     await Send(Envelope.Create("list", new { }));
                     var saved = (await Receive("sessions")).Read<List<SessionSummary>>();
                     if (saved.Count != 1) throw new InvalidOperationException("Committed session lost after worker crash.");

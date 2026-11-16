@@ -1,0 +1,108 @@
+<UserControl x:Class="Glimpse.UI.AgentPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="13" Foreground="#203044">
+  <UserControl.Resources>
+    <Style x:Key="TaskChoice" TargetType="RadioButton">
+      <Setter Property="Padding" Value="10,7"/><Setter Property="Margin" Value="0,0,6,6"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+        <Border x:Name="ChoiceSurface" CornerRadius="5" Background="#E9EFF4" Padding="{TemplateBinding Padding}"><ContentPresenter/></Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsChecked" Value="True"><Setter TargetName="ChoiceSurface" Property="Background" Value="#19766F"/><Setter Property="Foreground" Value="White"/></Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ChoiceSurface" Property="Opacity" Value="0.45"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate></Setter.Value></Setter>
+    </Style>
+  </UserControl.Resources>
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Margin="12">
+      <TextBlock Text="阅读助手" FontSize="17" FontWeight="SemiBold"/>
+      <TextBlock Text="先预览上下文，再主动生成；结果只会供你复制。" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,9"/>
+      <TextBlock x:Name="SessionSummary" Text="打开一个已有文字的会话后开始。" Foreground="#617387" TextWrapping="Wrap" Margin="0,0,0,9"/>
+
+      <Expander x:Name="SettingsExpander" Header="引擎设置" Margin="0,0,0,13">
+        <Border BorderBrush="#DCE5EA" BorderThickness="1" CornerRadius="6" Padding="11" Margin="0,7,0,0">
+          <StackPanel x:Name="SettingsFields">
+            <TextBlock x:Name="CurrentEngine" Text="尚未配置引擎" Foreground="#19766F" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+            <TextBlock Text="引擎" Margin="0,0,0,4"/>
+            <ComboBox x:Name="Providers" DisplayMemberPath="DisplayName" Padding="7" SelectionChanged="ProviderSelected"/>
+            <StackPanel x:Name="ApiFields" Margin="0,9,0,0">
+              <TextBlock Text="服务地址" Margin="0,0,0,4"/>
+              <TextBox x:Name="BaseUrl" TextChanged="SettingsChanged"/>
+              <TextBlock Text="API 密钥" Margin="0,9,0,4"/>
+              <PasswordBox x:Name="ApiKey" PasswordChanged="KeyChanged" Padding="9" BorderBrush="#D8E1E8"/>
+              <TextBlock x:Name="KeyStatus" Text="尚未保存密钥" FontSize="11" Foreground="#617387" Margin="0,4,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+            <StackPanel x:Name="CliFields" Margin="0,9,0,0" Visibility="Collapsed">
+              <TextBlock Text="CodeBuddy 可执行文件或脚本" Margin="0,0,0,4"/>
+              <TextBox x:Name="CliPath" TextChanged="SettingsChanged"/>
+              <TextBlock Text="脚本运行程序（独立可执行文件可留空）" Margin="0,9,0,4" TextWrapping="Wrap"/>
+              <TextBox x:Name="CliHostPath" TextChanged="SettingsChanged"/>
+              <TextBlock Text="使用本机 CodeBuddy 已登录的账号；不会自动操作其他应用。" FontSize="11" Foreground="#617387" TextWrapping="Wrap" Margin="0,5,0,0"/>
+            </StackPanel>
+            <TextBlock Text="模型" Margin="0,9,0,4"/>
+            <TextBox x:Name="Model" TextChanged="SettingsChanged"/>
+            <Grid Margin="0,9,0,8">
+              <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="10"/><ColumnDefinition/></Grid.ColumnDefinitions>
+              <StackPanel><TextBlock Text="等待上限（秒）" Margin="0,0,0,4"/><TextBox x:Name="Timeout" Text="60" TextChanged="SettingsChanged"/></StackPanel>
+              <StackPanel Grid.Column="2"><TextBlock Text="上下文字数上限" Margin="0,0,0,4"/><TextBox x:Name="ContextBudget" Text="12000" TextChanged="SettingsChanged"/></StackPanel>
+            </Grid>
+            <WrapPanel><Button Content="保存并切换" Click="SaveSettings"/><Button x:Name="ClearKeyButton" Content="清除已保存密钥" Click="ClearKey"/><Button Content="重新读取" Click="ReloadSettings"/></WrapPanel>
+            <TextBlock x:Name="SettingsNotice" Foreground="#9B6709" FontSize="11" TextWrapping="Wrap"/>
+          </StackPanel>
+        </Border>
+      </Expander>
+
+      <StackPanel x:Name="TaskFields">
+        <WrapPanel>
+          <RadioButton Content="帮我评论" Tag="comment" GroupName="AgentTask" Style="{StaticResource TaskChoice}" Click="TaskSelected"/>
+          <RadioButton Content="帮我回复" Tag="reply" GroupName="AgentTask" Style="{StaticResource TaskChoice}" Click="TaskSelected"/>
+          <RadioButton Content="总结" Tag="summary" GroupName="AgentTask" IsChecked="True" Style="{StaticResource TaskChoice}" Click="TaskSelected"/>
+          <RadioButton Content="给我建议" Tag="analysis" GroupName="AgentTask" Style="{StaticResource TaskChoice}" Click="TaskSelected"/>
+          <RadioButton Content="自由提问" Tag="custom" GroupName="AgentTask" Style="{StaticResource TaskChoice}" Click="TaskSelected"/>
+        </WrapPanel>
+        <TextBox x:Name="Prompt" AcceptsReturn="True" MinHeight="68" MaxHeight="180" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" TextChanged="PromptChanged"/>
+        <TextBlock Text="可补充问题、语气、长度和希望关注的内容。" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,9"/>
+      </StackPanel>
+
+      <Button x:Name="PreviewButton" Content="预览将发送的上下文" HorizontalAlignment="Left" Click="PreviewContext"/>
+      <Expander x:Name="PreviewExpander" Header="上下文预览" Visibility="Collapsed" Margin="0,2,0,9">
+        <StackPanel Margin="0,7,0,0">
+          <TextBlock x:Name="PreviewSummary" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+          <TextBlock x:Name="PreviewWarnings" Foreground="#9B6709" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,7"/>
+          <TextBox x:Name="PreviewText" IsReadOnly="True" IsReadOnlyCaretVisible="True" TextWrapping="Wrap" Height="180" VerticalScrollBarVisibility="Auto" FontSize="11"/>
+        </StackPanel>
+      </Expander>
+      <WrapPanel>
+        <Button x:Name="GenerateButton" Content="生成" Background="#19766F" Foreground="White" Click="Generate" IsEnabled="False"/>
+        <Button x:Name="CancelButton" Content="取消" Click="Cancel" IsEnabled="False"/>
+      </WrapPanel>
+      <TextBlock x:Name="TaskStatus" Text="先配置引擎，再预览上下文。" TextWrapping="Wrap" Foreground="#617387" Margin="0,0,0,10" AutomationProperties.LiveSetting="Polite"/>
+
+      <TextBlock x:Name="ResultSummary" FontSize="11" Foreground="#617387" TextWrapping="Wrap" Margin="0,0,0,7"/>
+      <TextBlock x:Name="ResultWarnings" Foreground="#9B6709" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,7"/>
+      <ItemsControl x:Name="Cards">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Border BorderBrush="#DCE5EA" BorderThickness="1" CornerRadius="6" Padding="11" Margin="0,0,0,9" Background="#F9FBFC">
+              <StackPanel>
+                <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding Tone}" FontSize="11" Foreground="#617387" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="True" TextWrapping="Wrap" MaxHeight="260" VerticalScrollBarVisibility="Auto" BorderThickness="0" Background="Transparent" Padding="0,7,0,8"/>
+                <Button Content="复制文字" Tag="{Binding Text}" Click="CopyText" HorizontalAlignment="Left" Margin="0"/>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <Border x:Name="FallbackPanel" Visibility="Collapsed" BorderBrush="#E0C98D" BorderThickness="1" CornerRadius="6" Padding="11" Background="#FFFBF0" Margin="0,0,0,8">
+        <StackPanel>
+          <TextBlock Text="回答格式未通过校验 · 以下为原始文字" Foreground="#9B6709" FontWeight="SemiBold" TextWrapping="Wrap"/>
+          <TextBox x:Name="FallbackText" IsReadOnly="True" IsReadOnlyCaretVisible="True" MaxHeight="280" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0,8"/>
+          <Button Content="复制原始文字" Click="CopyFallback" HorizontalAlignment="Left" Margin="0"/>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

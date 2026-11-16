@@ -4,6 +4,8 @@ Date: 2026-11-16. Status: accepted for implementation.
 
 Use Microsoft.Data.Sqlite, foreign keys and WAL. `PRAGMA user_version=1` is the migration version; refuse newer unknown versions. Creation of a new database is the first migration. All timestamps are UTC Unix milliseconds.
 
+Update: ADR 0004 introduces schema version 2 (`agent_turns` plus index). Version-1 Reader tables and evidence are retained; migration/reopen/result persistence/session-cascade behavior has a regression test. The paragraph above describes the original Reader checkpoint.
+
 Keep sessions, content blocks, recent snapshots, snapshot/block relations and gap hypotheses in separate tables. Embedded JSON stores immutable observation DTOs and durable provenance. The initial implementation uses a smaller schema than the proposed architecture: snapshot details are JSON, and unimplemented Agent tables are deliberately absent. The public DTOs are versioned with IPC v1.
 
 Each reconciliation is one transaction. Rebalance sortable fixed-width ordinal keys inside that transaction. First OCR reading, first sequence, first timestamp, observation count, most recent reading and fuzzy variants survive detailed-snapshot pruning. Snapshot relations cascade on pruning; content blocks never cascade from snapshots. Hashes are lookup metadata, never text uniqueness constraints.

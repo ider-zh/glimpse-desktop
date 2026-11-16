@@ -7,7 +7,8 @@ using Glimpse.Core;
 namespace Glimpse.Worker;
 
 public sealed class ReaderService(ISessionRepository repository, Func<ReaderUpdate, Task> publish,
-    string? initialLanguage = null, IScreenCapture? screenCapture = null, IOcrEngine? ocrEngine = null) : IAsyncDisposable
+    string? initialLanguage = null, IScreenCapture? screenCapture = null, IOcrEngine? ocrEngine = null,
+    int initialScale = 0) : IAsyncDisposable
 {
     private readonly SemaphoreSlim mutex = new(1);
     private readonly StabilityGate gate = new();
@@ -16,6 +17,7 @@ public sealed class ReaderService(ISessionRepository repository, Func<ReaderUpda
     private readonly ISequenceAligner aligner = new SessionReconciler();
     private IOcrEngine? ocr = ocrEngine;
     private string? language = initialLanguage;
+    private int scale = initialScale;
     private SessionData? current;
     private CancellationTokenSource? processing;
     private Task? job;
@@ -25,6 +27,27 @@ public sealed class ReaderService(ISessionRepository repository, Func<ReaderUpda
     private string? error;
     private long lastSentGeneration = -1;
     private string lastSentState = "";
+
+    public async Task<SessionData?> GetCurrentSessionAsync(CancellationToken cancellation = default)
+    {
+        await mutex.WaitAsync(cancellation);
+        try { return current; }
+        finally { mutex.Release(); }
+    }
+
+    public async Task SetScaleAsync(int value, CancellationToken cancellation)
+    {
+        if (value is < 0 or > 2) throw new InvalidOperationException("Unknown OCR enhancement mode.");
+        await mutex.WaitAsync(cancellation);
+        try
+        {
+            processing?.Cancel(); scale = value; ocr = null;
+            gate.Pause(); if (!paused) gate.Resume();
+            detector.Reset(); lastHash = null; error = null;
+            await Emit(true);
+        }
+        finally { mutex.Release(); }
+    }
 
     public async Task SetLanguageAsync(string value, CancellationToken cancellation)
     {
@@ -118,7 +141,7 @@ public sealed class ReaderService(ISessionRepository repository, Func<ReaderUpda
             {
                 if (!paused && current is not null)
                 {
-                    ocr ??= new WindowsOcr(language);
+                    ocr ??= new WindowsOcr(language, scale);
                     var pixels = capture.Capture(current.Rect);
                     bool changed = detector.HasChanged(pixels, current.Rect.Width, current.Rect.Height);
                     if (changed) { processing?.Cancel(); motionSamples++; }

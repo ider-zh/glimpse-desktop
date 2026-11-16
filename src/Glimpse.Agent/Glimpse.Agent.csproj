@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Glimpse.Core/Glimpse.Core.csproj" />
+    <ProjectReference Include="../Glimpse.Contracts/Glimpse.Contracts.csproj" />
+  </ItemGroup>
+</Project>

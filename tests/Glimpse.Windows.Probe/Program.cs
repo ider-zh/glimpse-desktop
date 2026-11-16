@@ -17,6 +17,16 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Contains("--agent-tests"))
+        {
+            AgentControllerProbes.Run().GetAwaiter().GetResult();
+            AgentPipeProbe.Run().GetAwaiter().GetResult(); return 0;
+        }
+        if (args.Contains("--provider-child")) return ProviderProbes.RunChild(args);
+        if (args.Contains("--provider-tests"))
+        {
+            ProviderProbes.Run().GetAwaiter().GetResult(); return 0;
+        }
         if (args.Contains("--worker-tests"))
         {
             WorkerProbes.Run().GetAwaiter().GetResult(); return 0;
@@ -33,7 +43,7 @@ internal static class Program
         }
         int exit = 1;
         Application app;
-        if (args.Contains("--ui-render"))
+        if (args.Contains("--ui-render") || args.Contains("--agent-ui"))
         {
             var uiApp = new Glimpse.UI.App { LaunchMainWindow = false, ShutdownMode = ShutdownMode.OnExplicitShutdown };
             uiApp.InitializeComponent(); app = uiApp;
@@ -43,7 +53,9 @@ internal static class Program
         {
             try
             {
-                if (args.Contains("--reader")) await RunReaderProbe();
+                if (args.Length == 2 && args[0] == "--agent-ui") await AgentUiProbe.Run(args[1]);
+                else if (args.Contains("--ocr-corpus")) await OcrCorpusProbe.Run();
+                else if (args.Contains("--reader")) await RunReaderProbe();
                 else if (args.Length == 2 && args[0] == "--ui-render") await RenderUi(args[1]);
                 else await RunProbe(args.Contains("--negative"));
                 exit = 0;
@@ -131,8 +143,7 @@ internal static class Program
             stop.Cancel();
             try { await loop; } catch (OperationCanceledException) { }
             await service.DisposeAsync(); fixture.Close();
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-            Directory.Delete(data, true);
+            await ProbeCleanup.DeleteAsync(data);
         }
     }
     private static Window CreateFixture()
