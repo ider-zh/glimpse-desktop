@@ -40,6 +40,10 @@ public sealed class AgentRunner(ILLMProvider provider, IContextBuilder? contextB
         {
             linked.Cancel(); return Result("timeout", error: "调用超时，已请求取消。请重试或切换引擎。");
         }
+        catch (ProviderFailureException ex)
+        {
+            linked.Cancel(); return Result("error", error: ex.Message);
+        }
         catch (Exception ex)
         {
             linked.Cancel(); return Result("error", error: $"引擎调用失败（{ex.GetType().Name}）。请检查配置后重试。");

@@ -58,8 +58,11 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
         try
         {
             var result = await run(CreateStartInfo(request, directory), request.UserPrompt, timeout.Token);
+            if ((result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput)) &&
+                (AuthenticationRequired(result.StandardError) || AuthenticationRequired(result.StandardOutput)))
+                throw new ProviderFailureException(ProviderFailureKind.CliAuthenticationRequired);
             if (result.ExitCode != 0)
-                throw new InvalidOperationException($"CodeBuddy CLI 退出（代码 {result.ExitCode}）。请在终端检查安装、登录和模型权限；不会显示可能含私密内容的 CLI 错误正文。");
+                throw new ProviderFailureException(ProviderFailureKind.CliExit, result.ExitCode);
             return new(ExtractResult(result.StandardOutput), profile.Model.Length == 0 ? null : profile.Model);
         }
         catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
@@ -76,7 +79,8 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
     }
     public static string ExtractResult(string output)
     {
-        if (output.Length > 1024 * 1024) throw new InvalidOperationException("CodeBuddy CLI 输出超过 1 MiB 上限。");
+        if (string.IsNullOrWhiteSpace(output)) throw new ProviderFailureException(ProviderFailureKind.CliEmptyResponse);
+        if (output.Length > 1024 * 1024) throw new ProviderFailureException(ProviderFailureKind.OutputLimit);
         try
         {
             using var json = JsonDocument.Parse(output);
@@ -84,13 +88,19 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
             if (result.ValueKind == JsonValueKind.Array)
             {
                 var messages = result.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.Object &&
-                    e.TryGetProperty("type", out var type) && type.GetString() == "result").ToArray();
-                if (messages.Length == 0) throw new InvalidOperationException("CodeBuddy CLI 未返回最终结果。");
+                    e.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "result").ToArray();
+                if (messages.Length == 0) throw new ProviderFailureException(ProviderFailureKind.CliEmptyResponse);
                 result = messages[^1];
             }
-            if (result.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("CodeBuddy CLI 响应格式无效。");
+            if (result.ValueKind != JsonValueKind.Object) throw new ProviderFailureException(ProviderFailureKind.CliInvalidResponse);
             if (result.TryGetProperty("is_error", out var failed) && failed.ValueKind == JsonValueKind.True)
-                throw new InvalidOperationException("CodeBuddy CLI 返回错误，请在终端检查认证或模型状态。");
+            {
+                string error = result.TryGetProperty("result", out var details) && details.ValueKind == JsonValueKind.String ? details.GetString()! : "";
+                if (AuthenticationRequired(error)) throw new ProviderFailureException(ProviderFailureKind.CliAuthenticationRequired);
+                if (result.TryGetProperty("subtype", out var subtype) && subtype.ValueKind == JsonValueKind.String && subtype.GetString() == "error_max_turns")
+                    throw new ProviderFailureException(ProviderFailureKind.CliTurnLimit);
+                throw new ProviderFailureException(ProviderFailureKind.CliInvalidResponse);
+            }
             if (result.TryGetProperty("structured_output", out var structured) && structured.ValueKind == JsonValueKind.Object)
                 return structured.GetRawText();
             if (result.TryGetProperty("result", out var text) && text.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(text.GetString()))
@@ -98,10 +108,16 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
             // Some versions emit the structured result directly; local schema validation
             // still decides whether it is an accepted card or a visibly invalid fallback.
             if (result.TryGetProperty("schema", out _)) return result.GetRawText();
-            throw new InvalidOperationException("CodeBuddy CLI 未返回可用文本。");
+            throw new ProviderFailureException(ProviderFailureKind.CliEmptyResponse);
         }
-        catch (JsonException) { throw new InvalidOperationException("CodeBuddy CLI 返回了无效 JSON。"); }
+        catch (JsonException) { throw new ProviderFailureException(ProviderFailureKind.CliInvalidResponse); }
     }
+    internal static bool AuthenticationRequired(string text) =>
+        text.Contains("Authentication required", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("not authenticated", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("not logged in", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("401", StringComparison.Ordinal) &&
+        (text.Contains("/login", StringComparison.OrdinalIgnoreCase) || text.Contains("unauthorized", StringComparison.OrdinalIgnoreCase));
     internal static async Task<CliProcessResult> RunProcess(ProcessStartInfo start, string input, CancellationToken cancellation)
     {
         using var process = new Process { StartInfo = start };
@@ -118,7 +134,7 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
                 if (text.Length + count > 1024 * 1024)
                 {
                     if (!process.HasExited) process.Kill(true);
-                    throw new InvalidOperationException("CodeBuddy CLI 输出超过 1 MiB 上限。");
+                    throw new ProviderFailureException(ProviderFailureKind.OutputLimit);
                 }
                 text.Append(chars, 0, count);
             }
@@ -132,7 +148,7 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
             process.StandardInput.Close();
             await Task.WhenAll(process.WaitForExitAsync(cancellation), stdout, stderr);
             cancellation.ThrowIfCancellationRequested();
-            return new(process.ExitCode, await stdout);
+            return new(process.ExitCode, await stdout, await stderr);
         }
         finally
         {
@@ -142,4 +158,7 @@ public sealed class CodeBuddyCliProvider : ILLMProvider
         }
     }
 }
-public record CliProcessResult(int ExitCode, string StandardOutput);
+public record CliProcessResult(int ExitCode, string StandardOutput, string StandardError = "")
+{
+    public override string ToString() => $"CLI result: exit={ExitCode}, outputChars={StandardOutput.Length}, diagnosticChars={StandardError.Length}";
+}

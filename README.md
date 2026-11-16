@@ -4,7 +4,7 @@
 
 Glimpse is a Windows desktop reader. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. A user-triggered Agent uses reviewed session context to propose comments, replies, summaries, or suggestions as copyable cards.
 
-> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable DeepSeek / Xiaomi MiMo / custom Chat Completions API / CodeBuddy CLI engines, reviewed context and validated cards are implemented. 51 core tests, offline provider/controller tests and a real Worker-to-loopback API flow pass. **V0.1 is not complete**: live provider acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
+> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable DeepSeek / Xiaomi MiMo / custom Chat Completions API / CodeBuddy CLI engines, reviewed context and validated cards are implemented. 52 core tests, offline provider/controller tests and a real Worker-to-loopback API flow pass. Installed CodeBuddy preview/cancellation and offline-card clipboard checks pass; authenticated generation is currently blocked by CLI HTTP 401. **V0.1 is not complete**: live provider acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
 
 ## Run and verify
 
@@ -13,7 +13,7 @@ Requires Windows x64, Windows 10 build 19041 or later, an installed Windows OCR 
 ```powershell
 dotnet build Glimpse.slnx -c Release
 dotnet run --project src/Glimpse.UI -c Release
-./scripts/verify.ps1                   # build, 51 tests, corpus, provider/Agent/IPC/cancel/restart probes
+./scripts/verify.ps1                   # build, 52 tests, corpus, provider/Agent/IPC/cancel/restart probes
 ./scripts/verify.ps1 -InteractiveWindows # additionally opens synthetic Windows capture/OCR probes
 ./scripts/publish.ps1                  # artifacts/portable/Glimpse.UI.exe and portable ZIP
 # If that folder is currently running: ./scripts/publish.ps1 -OutputName agent-preview

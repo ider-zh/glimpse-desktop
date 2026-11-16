@@ -165,6 +165,15 @@ public class AgentTests
         Assert.Equal("error", result.Status); Assert.DoesNotContain(secret, result.Error!);
         Assert.Contains("IOException", result.Error!);
     }
+    [Fact]
+    public async Task LocallyAuthoredProviderFailuresRemainActionableWithoutLeakingDiagnostics()
+    {
+        var provider = new FakeProvider((_, _) => throw new ProviderFailureException(ProviderFailureKind.CliAuthenticationRequired));
+        var result = await new AgentRunner(provider).RunPreparedAsync(Preview(Session("Fixture")));
+        Assert.Equal("error", result.Status);
+        Assert.Contains("/login", result.Error!);
+        Assert.DoesNotContain("InvalidOperationException", result.Error!);
+    }
     private sealed class FakeProvider(Func<ProviderRequest, CancellationToken, Task<ProviderResponse>> generate) : ILLMProvider
     {
         public string Id => "offline-fake";

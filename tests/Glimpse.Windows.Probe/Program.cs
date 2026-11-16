@@ -17,6 +17,22 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length == 2 && args[0] == "--prepare-agent-copy-fixture")
+        {
+            CodeBuddyLiveProbe.PrepareCopy(args[1]).GetAwaiter().GetResult(); return 0;
+        }
+        if (args.Length == 2 && args[0] == "--prepare-codebuddy-live")
+        {
+            CodeBuddyLiveProbe.Prepare(args[1]).GetAwaiter().GetResult(); return 0;
+        }
+        if (args.Length == 2 && args[0] == "--diagnose-codebuddy-live")
+        {
+            CodeBuddyLiveProbe.Diagnose(args[1]).GetAwaiter().GetResult(); return 0;
+        }
+        if (args.Length == 2 && args[0] == "--diagnose-codebuddy-user-settings")
+        {
+            CodeBuddyLiveProbe.Diagnose(args[1], true).GetAwaiter().GetResult(); return 0;
+        }
         if (args.Contains("--agent-tests"))
         {
             AgentControllerProbes.Run().GetAwaiter().GetResult();

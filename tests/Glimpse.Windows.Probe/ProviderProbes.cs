@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using Glimpse.Contracts;
 using Glimpse.Providers;
+using Glimpse.Agent;
 
 namespace Glimpse.Windows.Probe;
 
@@ -116,6 +117,18 @@ internal static class ProviderProbes
         Check((await fake.GenerateAsync(Request, CancellationToken.None)).Text.Contains("summary.v1"), "CLI structured extraction");
         Check(CodeBuddyCliProvider.ExtractResult("[{\"type\":\"system\"},{\"type\":\"result\",\"result\":\"fixture text\"}]") == "fixture text", "CLI JSON array extraction");
         Expect<InvalidOperationException>(() => CodeBuddyCliProvider.ExtractResult("{\"is_error\":true,\"result\":\"synthetic-secret\"}"));
+        foreach (int exit in new[] { 0, 1 })
+        {
+            var unauthorized = new CodeBuddyCliProvider(profile, (_, _, _) => Task.FromResult(
+                new CliProcessResult(exit, "", "401 Authentication required. Please use /login. synthetic-private-token")));
+            try { await unauthorized.GenerateAsync(Request, CancellationToken.None); throw new Exception("Authentication failure was missed."); }
+            catch (ProviderFailureException ex)
+            {
+                Check(ex.Kind == ProviderFailureKind.CliAuthenticationRequired && ex.Message.Contains("/login"), "Actionable CLI authentication failure");
+                Check(!ex.Message.Contains("synthetic-private-token"), "No CLI diagnostics in UI errors");
+            }
+        }
+        Check(!new CliProcessResult(1, "synthetic-secret", "synthetic-secret").ToString().Contains("synthetic-secret"), "Private process result diagnostics");
         await ExpectAsync<InvalidOperationException>(() => new CodeBuddyCliProvider(profile,
             (_, _, _) => Task.FromResult(new CliProcessResult(7, "synthetic-secret"))).GenerateAsync(Request, CancellationToken.None));
         // Real child-process tests run this fixture executable, never the installed CLI.

@@ -1,6 +1,6 @@
 # Reader and Agent validation — 2026-11-16
 
-This is a measured development checkpoint, **not completed V0.1 acceptance**. No real provider/API credentials or external model calls were used. All screen fixtures were generated synthetic text; no user browsing content or screen images are committed. The owner explicitly requested Agent now and subagent implementation, superseding the original wait-for-Reader-acceptance ordering; hardware gates below remain open.
+This is a measured development checkpoint, **not completed V0.1 acceptance**. Automated regression uses offline providers. A later owner-requested installed CodeBuddy live check attempted inference with synthetic text using the CLI's existing authentication; it returned HTTP 401 and produced no model answer. Glimpse did not inspect credential files or automate login. All screen fixtures were generated synthetic text; no user browsing content or screen images are committed. The owner explicitly requested Agent now and subagent implementation, superseding the original wait-for-Reader-acceptance ordering; hardware gates below remain open.
 
 ## Environment and reproducibility
 
@@ -22,12 +22,25 @@ dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agen
 
 Close other test fixtures before running an interactive probe. These native probes deliberately open topmost generated test windows. Do not run concurrently with publishing: builds share NuGet/MSBuild intermediate state. `--ui-render` writes only the app's WPF visual tree, not a screen capture. For OCR fixture files, `Glimpse.Worker --ocr image.png [language]` prints explicit diagnostic JSON.
 
+The installed CLI check is opt-in and excluded from CI. First complete `codebuddy` → `/login` yourself. Use a **new** fixture directory for each run; preparation refuses existing directories. Start the UI from the same PowerShell process to inherit its isolated data folder, open the synthetic session, preview, generate/cancel, and copy a successful card back into the local prompt to compare. Do not launch observation over personal content during this test.
+
+```powershell
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --prepare-codebuddy-live artifacts/my-new-codebuddy-check
+$env:GLIMPSE_DATA_DIR = "$PWD/artifacts/my-new-codebuddy-check"
+dotnet run --project src/Glimpse.UI -c Release --no-build
+# Optional real request: emits exit code, output lengths, JSON/auth booleans only.
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --diagnose-codebuddy-live artifacts/my-new-codebuddy-check
+Remove-Item Env:GLIMPSE_DATA_DIR
+```
+
+`--prepare-agent-copy-fixture <new-directory>` instead creates an explicitly labeled offline stored card for independent clipboard testing. It performs no inference and must not be counted as authenticated generation. The app's regular data folder and running older preview were left untouched during the recorded checks.
+
 ## Observed results
 
 | Check | Observed result | Evidence / limits |
 |---|---|---|
 | Release solution build | 0 warnings / 0 errors | Windows source build |
-| Core/storage/Agent tests | 51 passed | Reader tests plus 6 image preparation checks, 21 Agent context/card/fake-provider tests, schema-v1 migration/Agent history/cascade-deletion test |
+| Core/storage/Agent tests | 52 passed | Reader tests plus image preparation, Agent context/card/fake-provider tests, schema-v1 migration/Agent history/cascade deletion and safe actionable provider errors |
 | Labeled synthetic corpus | 9 scenarios pass; block precision/recall/order = 1; duplicate/erroneous merge counts = 0 | [raw metrics](evidence/synthetic-v1.json). Thresholds apply only to this corpus; they are not real OCR accuracy claims. |
 | Own-window exclusion | zero pixel mismatch with a magenta excluded window plus lens | 650×420 physical pixels; [negative-monitor native output](evidence/windows-negative-96dpi.json) |
 | Click-through and alignment | underlying fixture receives hit test; actual button click increments counter; wheel scroll changes fixture | Native WindowFromPoint plus computer-use checks; physical crop exact at current 96 DPI |
@@ -42,6 +55,8 @@ Close other test fixtures before running an interactive probe. These native prob
 | Agent controller | Frozen redacted preview, no inference during preview/configuration, strict schemas/fallback, old session/engine/replayed preview rejection, targeted cancellation and durable results pass | Pure fake providers plus real SQLite and settings; delayed fake ignores cancellation deliberately. |
 | Agent transport | Actual UI client → Worker → loopback Chat Completions → local card validation → SQLite history passes | Heartbeat and pause complete while response is deliberately withheld; canceled request returns canceled. Mock server receives exactly reviewed messages and no images/tools. |
 | Agent WPF UI | Real preview/generate controls produce cards; preview email redacted; consumed preview disables generation; session switch clears old cards | `--agent-ui`, own WPF visual-tree render with synthetic data only. |
+| Installed CodeBuddy CLI 2.139.0 | Real WPF preview and cancellation pass; generation returns HTTP 401 with exit code 0 | Independent paused synthetic session; preview filters email/phone and launches no CLI. Generate starts real Node.js CLI; cancel removes its process and restores preview-required state without late cards. Both isolated and user-settings diagnostics return 401. Fixed UI now gives `/login` instructions without raw stderr. Authenticated generation remains blocked. |
+| Result clipboard | Copy button → paste into local prompt → select text equals fixture exactly, including Chinese and newline | Separately labeled `offline-copy-fixture` stored result, real Windows clipboard, maximized WPF window. This proves card copying/history only, **not successful CLI generation**. |
 | UI | controls fit the default inspector; synthetic click/scroll/new-session/start/close flow checked | WPF visual-tree render inspected. External screenshots intentionally exclude the app's windows. |
 | Distribution | self-contained win-x64 folder and ZIP generated; packaged UI/Worker connect with `DOTNET_ROOT` pointing to a deliberately absent folder and multilevel lookup disabled | UI and Worker are independently published; see publish script. Both runtimeconfig files declare included frameworks. A genuinely fresh machine remains untested. |
 
@@ -55,7 +70,7 @@ The recorded end-to-end run used a 720×480 region for approximately 28 seconds 
 | M1 | Selection, hollow move/resize lens, capture, exclusion, pause and inspector implemented | Actual 125%/150% mixed-DPI movement/resizing and display-disconnect matrix |
 | M2 | Local OCR, language/mode selection, bounded small-text enhancement, 1000 ms debounce and generations; rendered small-font/blank/mixed corpus passes | Real-page accuracy and wider CPU-only hardware sample; 10-pixel Chinese remains difficult |
 | M3 | Atomic SQLite, 9-snapshot ring, durable provenance, sequence alignment, uncertainty/gap hypotheses, inspect/export/delete/resume implemented | Consented/sanitized real scroll corpus with fixed acceptance thresholds; contextual page-switch ambiguity and long-session profiling |
-| M4 | User-authorized implementation: switchable DeepSeek/MiMo/custom API/CodeBuddy engines, DPAPI configuration, preview/filtering, four card schemas, cancel/timeout and history | Actual external provider and authenticated CLI acceptance remain optional and unverified; user supplies credentials/login and explicitly triggers generation |
+| M4 | User-authorized implementation: switchable DeepSeek/MiMo/custom API/CodeBuddy engines, DPAPI configuration, preview/filtering, four card schemas, cancel/timeout and history | Installed CLI preview/cancel/error handling verified; owner-requested authenticated CLI generation blocked by 401 pending manual login. External API acceptance remains unverified. |
 | M5 | Portable publishing and basic recovery/privacy controls implemented | Fresh-machine launch, eight-hour soak, full memory/idle CPU/P95 1080p measurements, licensing/governance decision |
 
 ## Remaining risks and next work
@@ -66,6 +81,6 @@ The first remote Windows CI failure occurred after all functional checks passed:
 - Global fallback alignment permits returning to evicted text. Ambiguous repeats and unanchored page switches retain evidence with uncertainty. Foreground window identity is only a heuristic; different pages within one application can still resemble a scroll gap.
 - Saving upserts/rebalances the full accumulated document. Document fallback DP alignment and complete inspector IPC payloads can grow with a very long session. Eight-hour acceptance is open until these costs are profiled and bounded.
 - Chinese OCR errors and changing line wraps can produce extra retained blocks. Do not silently remove those readings just to improve a duplicate metric. Original/fuzzy variant evidence remains available after snapshot eviction.
-- Agent was implemented under the owner's explicit request, with offline acceptance evidence and no real credential use. Remaining Reader hardware/quality gates are still open. Repository licensing is still undecided.
+- Agent was implemented under the owner's explicit request, with offline acceptance evidence and the limited installed CLI results above. Remaining Reader hardware/quality gates are still open. Repository licensing is still undecided.
 
 During development, probes caught the first-frame uncertainty bug and the original sparse detector's insensitivity to small changes; both have regression tests. The first 20-position fixture was too short and reached the bottom early; it was extended to 90 paragraphs. A negative-monitor probe initially allowed another window to obscure its test fixture; it now keeps the fixture topmost. An overlapping build/publish restore caused NETSDK1047 during development; sequential publish succeeded afterward. These failed attempts are not counted as passing evidence.
