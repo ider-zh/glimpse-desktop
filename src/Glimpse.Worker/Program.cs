@@ -52,10 +52,12 @@ public static class Program
             var loop = service.RunAsync(stop.Token);
             var providerSettings = new ProviderSettingsStore(args[3]);
             using var agent = new AgentController(providerSettings, repository, service.GetCurrentSessionAsync);
+            await using var login = new CliLoginController(providerSettings);
             await Send(Envelope.Create("ready", new { languages = WindowsOcr.Languages, language, scale }));
             var replies = new ConcurrentDictionary<Guid, Envelope>();
             var inFlight = new ConcurrentDictionary<Guid, byte>();
             var background = new List<Task>();
+            int modelCatalogRunning = 0;
             void Remember(Envelope response)
             {
                 if (replies.Count >= 128) replies.TryRemove(replies.Keys.FirstOrDefault(), out _);
@@ -69,8 +71,44 @@ public static class Program
                     var request = JsonSerializer.Deserialize<Envelope>(line, Envelope.Json) ?? throw new InvalidDataException();
                     if (request.ProtocolVersion != Envelope.Version) throw new InvalidDataException("Protocol version mismatch.");
                     if (replies.TryGetValue(request.RequestId, out var cached)) { await Send(cached); continue; }
+                    if (request.MessageType == "agent-models-get")
+                    {
+                        if (inFlight.ContainsKey(request.RequestId)) continue;
+                        if (login.HasSession || Interlocked.CompareExchange(ref modelCatalogRunning, 1, 0) != 0)
+                        {
+                            await Send(Envelope.Create("error", new { message = "请先结束登录终端，或等待当前模型列表读取完成后刷新。" }, request: request.RequestId));
+                            continue;
+                        }
+                        if (!inFlight.TryAdd(request.RequestId, 0)) { Volatile.Write(ref modelCatalogRunning, 0); continue; }
+                        background.Add(Task.Run(async () =>
+                        {
+                            Envelope response;
+                            try
+                            {
+                                var configured = await providerSettings.LoadPublicAsync(stop.Token);
+                                var profile = configured.Providers.Single(p => p.Id == configured.SelectedProviderId);
+                                if (profile.Kind != "codebuddy-cli") throw new InvalidOperationException("请先保存并切换到 CodeBuddy CLI。");
+                                var catalog = await CodeBuddyModelCatalog.LoadAsync(profile, stop.Token);
+                                response = Envelope.Create("agent-models", catalog, request: request.RequestId);
+                            }
+                            catch (Exception ex)
+                            {
+                                response = Envelope.Create("error", new { message = ex is InvalidOperationException ? ex.Message :
+                                    "模型列表读取未完成。请检查 CLI 登录和网络后刷新。" }, request: request.RequestId);
+                            }
+                            finally { Volatile.Write(ref modelCatalogRunning, 0); }
+                            Remember(response); inFlight.TryRemove(request.RequestId, out _);
+                            try { await Send(response); } catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+                        }, CancellationToken.None));
+                        continue;
+                    }
                     if (request.MessageType == "agent-run")
                     {
+                        if (login.HasSession)
+                        {
+                            await Send(Envelope.Create("error", new { message = "请先结束登录终端，再重新预览、生成。" }, request: request.RequestId));
+                            continue;
+                        }
                         if (!inFlight.TryAdd(request.RequestId, 0)) continue;
                         // Model work must never occupy the command loop: heartbeat,
                         // pause, capture updates and cancellation remain serviceable.
@@ -101,14 +139,41 @@ public static class Program
                         switch (request.MessageType)
                         {
                             case "list": break;
+                            case "agent-login-start":
+                                if (agent.IsRunning) throw new InvalidOperationException("请先取消或等待正在运行的生成，再打开登录终端。");
+                                agent.Invalidate();
+                                var startedLogin = await login.StartAsync(stop.Token);
+                                // Retain only session ownership metadata for idempotent
+                                // start retries, never a terminal transcript or URL.
+                                reply = Envelope.Create("agent-login", startedLogin with { ScreenText = "", Links = [], TerminalOutput = "", OutputStart = 0 }, request: request.RequestId);
+                                Remember(reply); await Send(reply); continue;
+                            case "agent-login-read":
+                                reply = Envelope.Create("agent-login", login.Read(request.Read<CliLoginRequest>().LoginId), request: request.RequestId);
+                                await Send(reply); continue;
+                            case "agent-login-input":
+                                var terminalInput = request.Read<CliLoginInput>();
+                                await login.SendAsync(terminalInput, stop.Token);
+                                reply = Envelope.Create("agent-login-input-sent", new { }, request: request.RequestId);
+                                Remember(reply); await Send(reply); continue;
+                            case "agent-login-resize":
+                                login.Resize(request.Read<CliLoginResize>());
+                                reply = Envelope.Create("agent-login-resized", new { }, request: request.RequestId);
+                                Remember(reply); await Send(reply); continue;
+                            case "agent-login-stop":
+                                await login.StopAsync(request.Read<CliLoginRequest>().LoginId);
+                                agent.Invalidate();
+                                reply = Envelope.Create("agent-login-stopped", new { }, request: request.RequestId);
+                                Remember(reply); await Send(reply); continue;
                             case "agent-settings-get":
                                 reply = Envelope.Create("agent-settings", await providerSettings.LoadPublicAsync(stop.Token), request: request.RequestId);
                                 Remember(reply); await Send(reply); continue;
                             case "agent-settings-save":
+                                if (login.HasSession) throw new InvalidOperationException("请先结束登录终端，再修改引擎设置。");
                                 agent.Invalidate();
                                 reply = Envelope.Create("agent-settings", await providerSettings.SaveAsync(request.Read<AgentProviderUpdate>(), stop.Token), request: request.RequestId);
                                 Remember(reply); await Send(reply); continue;
                             case "agent-preview":
+                                if (login.HasSession) throw new InvalidOperationException("请先结束登录终端，再预览上下文。");
                                 reply = Envelope.Create("agent-preview", await agent.PreviewAsync(request.Read<AgentTaskRequest>(), stop.Token), request: request.RequestId);
                                 Remember(reply); await Send(reply); continue;
                             case "agent-cancel":
@@ -171,6 +236,7 @@ public static class Program
             finally
             {
                 agent.Cancel();
+                await login.DisposeAsync();
                 stop.Cancel();
                 try { await loop; } catch (OperationCanceledException) { }
                 await Task.WhenAll(background);

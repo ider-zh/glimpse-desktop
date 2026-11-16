@@ -1,6 +1,6 @@
 # Reader and Agent validation — 2026-11-16
 
-This is a measured development checkpoint, **not completed V0.1 acceptance**. Automated regression uses offline providers. A later owner-requested installed CodeBuddy live check attempted inference with synthetic text using the CLI's existing authentication; it returned HTTP 401 and produced no model answer. Glimpse did not inspect credential files or automate login. All screen fixtures were generated synthetic text; no user browsing content or screen images are committed. The owner explicitly requested Agent now and subagent implementation, superseding the original wait-for-Reader-acceptance ordering; hardware gates below remain open.
+This is a measured development checkpoint, **not completed V0.1 acceptance**. Automated regression uses offline providers. Initial CodeBuddy checks found HTTP 401 with exit code 0; after the owner completed login, real generation, cancellation, model discovery/selection and exact copying passed with synthetic context. Glimpse did not inspect credential files or automate login. All screen fixtures were generated synthetic text; no user browsing content or screen images are committed. The owner explicitly requested Agent now and subagent implementation, superseding the original wait-for-Reader-acceptance ordering; hardware gates below remain open.
 
 ## Environment and reproducibility
 
@@ -17,6 +17,8 @@ dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agen
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --ocr-corpus
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --provider-tests
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-tests
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-terminal-tests
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-ui artifacts/codebuddy-login-ui.png
 ./scripts/publish.ps1
 ```
 
@@ -30,6 +32,9 @@ $env:GLIMPSE_DATA_DIR = "$PWD/artifacts/my-new-codebuddy-check"
 dotnet run --project src/Glimpse.UI -c Release --no-build
 # Optional real request: emits exit code, output lengths, JSON/auth booleans only.
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --diagnose-codebuddy-live artifacts/my-new-codebuddy-check
+# Opt-in real model metadata and inference with the prepared synthetic fixture:
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --codebuddy-models artifacts/my-new-codebuddy-check
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --live-agent-ui artifacts/my-new-codebuddy-check artifacts/live-cards.png
 Remove-Item Env:GLIMPSE_DATA_DIR
 ```
 
@@ -51,12 +56,15 @@ Remove-Item Env:GLIMPSE_DATA_DIR
 | Cancellation | delayed fake OCR ignores cancellation; stale result still cannot commit or emit green after session switch | `--worker-tests`, real SQLite plus fake capture/OCR |
 | UI supervision | actual UI client reconnects after its Worker is killed, loads committed session paused | `--worker-tests`; bounded automatic retry policy |
 | Normal shutdown | Worker exits with code 0 and durable closed-session state; five consecutive local recovery/shutdown cycles pass | The initial Windows CI cleanup failure is fixed; [Windows + Linux CI run](https://github.com/ider-zh/glimpse-desktop/actions/runs/43842513842) passed on the shutdown-fix commit. New feature commits are checked independently. |
-| Provider adapters | Offline HTTP header/path/body/timeout/cancel/size tests, actual DPAPI round trip, synthetic child-process stdin/kill/output/exit tests pass | No network to DeepSeek/MiMo and no real authenticated CodeBuddy generation. CLI test checks empty tools/MCP and disabled hooks/settings. |
+| Provider adapters | Offline HTTP header/path/body/timeout/cancel/size tests, actual DPAPI round trip, synthetic child-process stdin/kill/output/exit tests pass | These regression probes make no supplier calls; separate live CLI evidence below. CLI test checks empty tools/MCP and disabled hooks/settings. |
 | Agent controller | Frozen redacted preview, no inference during preview/configuration, strict schemas/fallback, old session/engine/replayed preview rejection, targeted cancellation and durable results pass | Pure fake providers plus real SQLite and settings; delayed fake ignores cancellation deliberately. |
 | Agent transport | Actual UI client → Worker → loopback Chat Completions → local card validation → SQLite history passes | Heartbeat and pause complete while response is deliberately withheld; canceled request returns canceled. Mock server receives exactly reviewed messages and no images/tools. |
 | Agent WPF UI | Real preview/generate controls produce cards; preview email redacted; consumed preview disables generation; session switch clears old cards | `--agent-ui`, own WPF visual-tree render with synthetic data only. |
-| Installed CodeBuddy CLI 2.139.0 | Real WPF preview and cancellation pass; generation returns HTTP 401 with exit code 0 | Independent paused synthetic session; preview filters email/phone and launches no CLI. Generate starts real Node.js CLI; cancel removes its process and restores preview-required state without late cards. Both isolated and user-settings diagnostics return 401. Fixed UI now gives `/login` instructions without raw stderr. Authenticated generation remains blocked. |
+| Installed CodeBuddy CLI 2.139.0 | Authenticated default-model WPF generation: 17.5 seconds, 6 validated summary cards; selected `mimo-v2.6-pro`: 14.6 seconds, 5 validated cards | Independent paused synthetic session, email/phone redacted. Real MiMo generation canceled at 3.5 seconds; no late cards, fresh preview required. Next attempt completed, every card's real Copy button matched clipboard text exactly; canceled/completed SQLite history verified. Initial 401/exit0 finding remains covered by error regression. |
+| CLI model discovery | 16 models discovered from the logged-in CLI, editable dropdown selection saved ID correctly | ACP initialize → blank session/new metadata, never session/prompt, no filesystem/terminal tools offered. Automatic selected-engine/login-close refresh and manual refresh. Offline ACP tests also cover unwanted tool requests, projection/deduplication, authentication errors and cancellation. |
 | Result clipboard | Copy button → paste into local prompt → select text equals fixture exactly, including Chinese and newline | Separately labeled `offline-copy-fixture` stored result, real Windows clipboard, maximized WPF window. This proves card copying/history only, **not successful CLI generation**. |
+| App login terminal | Actual Windows ConPTY/Job child, TTY keyboard input, split/wrapped URL extraction, bounded memory, native exit and stop pass | `--login-terminal-tests` uses a synthetic executable only. First run caught inherited redirected standard handles overriding the terminal; explicit null startup handles fixed it. Input deadlines and shutdown are bounded; no real authentication was initiated. |
+| Login transport/UI | Worker pipe preserves login IDs/raw VT/input/resize/links, rejects simultaneous generation/config changes, serves heartbeat and cleans up on disconnect; xterm/WebView2 native component tested on device | Local bundled xterm 6.0.0 + addon-fit 0.11.0, WebView2 1.0.4314.35. Input, ANSI menu rendering, resize, terminal selection/clipboard, safe links, blocked external navigation, stop and close-during-start tested with synthetic delegates; composite WPF/WebView2 capture inspected. No real login is automated. See ADR 0006. |
 | UI | controls fit the default inspector; synthetic click/scroll/new-session/start/close flow checked | WPF visual-tree render inspected. External screenshots intentionally exclude the app's windows. |
 | Distribution | self-contained win-x64 folder and ZIP generated; packaged UI/Worker connect with `DOTNET_ROOT` pointing to a deliberately absent folder and multilevel lookup disabled | UI and Worker are independently published; see publish script. Both runtimeconfig files declare included frameworks. A genuinely fresh machine remains untested. |
 
@@ -70,7 +78,7 @@ The recorded end-to-end run used a 720×480 region for approximately 28 seconds 
 | M1 | Selection, hollow move/resize lens, capture, exclusion, pause and inspector implemented | Actual 125%/150% mixed-DPI movement/resizing and display-disconnect matrix |
 | M2 | Local OCR, language/mode selection, bounded small-text enhancement, 1000 ms debounce and generations; rendered small-font/blank/mixed corpus passes | Real-page accuracy and wider CPU-only hardware sample; 10-pixel Chinese remains difficult |
 | M3 | Atomic SQLite, 9-snapshot ring, durable provenance, sequence alignment, uncertainty/gap hypotheses, inspect/export/delete/resume implemented | Consented/sanitized real scroll corpus with fixed acceptance thresholds; contextual page-switch ambiguity and long-session profiling |
-| M4 | User-authorized implementation: switchable DeepSeek/MiMo/custom API/CodeBuddy engines, DPAPI configuration, preview/filtering, four card schemas, cancel/timeout and history | Installed CLI preview/cancel/error handling verified; owner-requested authenticated CLI generation blocked by 401 pending manual login. External API acceptance remains unverified. |
+| M4 | User-authorized implementation: switchable engines, DPAPI configuration, preview/filtering, cards, cancel/history; authenticated CLI workflow and account model discovery tested | Direct external API provider acceptance, enterprise-login variants and wider CLI-version matrix remain unverified. |
 | M5 | Portable publishing and basic recovery/privacy controls implemented | Fresh-machine launch, eight-hour soak, full memory/idle CPU/P95 1080p measurements, licensing/governance decision |
 
 ## Remaining risks and next work

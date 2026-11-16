@@ -15,6 +15,7 @@ public sealed class AgentController(ProviderSettingsStore settings, SessionRepos
     private readonly object state = new();
     private CancellationTokenSource? active;
     private Guid? activePreview;
+    public bool IsRunning { get { lock (state) return active is not null; } }
 
     public async Task<AgentContextPreview> PreviewAsync(AgentTaskRequest request, CancellationToken cancellation)
     {

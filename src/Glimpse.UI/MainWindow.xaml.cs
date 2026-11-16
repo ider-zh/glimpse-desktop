@@ -14,6 +14,7 @@ public partial class MainWindow : Window
 {
     private readonly WorkerClient worker = new();
     private LensWindow? lens;
+    private CodeBuddyLoginWindow? loginWindow;
     private SessionData? current;
     private PixelRect rect = new(100, 160, 700, 420);
     private bool observing, closing, excluded;
@@ -36,6 +37,9 @@ public partial class MainWindow : Window
             using var registration = cancellation.Register(() => _ = CancelAgentAsync(previewId));
             return (await worker.RequestAsync("agent-run", new { previewId }, TimeSpan.FromMinutes(4), cancellation)).Read<AgentResult>();
         };
+        AgentView.LoginAsync = OpenCodeBuddyLoginAsync;
+        AgentView.LoadModelsAsync = async cancellation =>
+            (await worker.RequestAsync("agent-models-get", new { }, TimeSpan.FromSeconds(50), cancellation)).Read<AgentModelCatalog>();
         SourceInitialized += (_, _) =>
         {
             try { Native.Exclude(this); excluded = true; }
@@ -162,6 +166,20 @@ public partial class MainWindow : Window
     {
         try { await worker.SendAsync("agent-cancel", new { previewId }); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or TimeoutException) { }
+    }
+    private Task OpenCodeBuddyLoginAsync(CancellationToken cancellation)
+    {
+        cancellation.ThrowIfCancellationRequested();
+        if (loginWindow is not null) { loginWindow.Activate(); return Task.CompletedTask; }
+        loginWindow = new CodeBuddyLoginWindow(
+            async token => (await worker.RequestAsync("agent-login-start", new { }, cancellation: token)).Read<CliLoginSnapshot>(),
+            async (id, token) => (await worker.RequestAsync("agent-login-read", new CliLoginRequest(id), cancellation: token)).Read<CliLoginSnapshot>(),
+            async (id, text, token) => { await worker.RequestAsync("agent-login-input", new CliLoginInput(id, text), cancellation: token); },
+            async (id, token) => { await worker.RequestAsync("agent-login-stop", new CliLoginRequest(id), cancellation: token); },
+            async (id, columns, rows, token) => { await worker.RequestAsync("agent-login-resize", new CliLoginResize(id, columns, rows), cancellation: token); }) { Owner = this };
+        try { loginWindow.ShowDialog(); }
+        finally { loginWindow = null; }
+        return Task.CompletedTask;
     }
     private void ViewChanged(object sender, SelectionChangedEventArgs e)
     { if (ReferenceEquals(e.Source, Views)) UpdateViewLayout(); }
@@ -305,6 +323,7 @@ public partial class MainWindow : Window
         if (closing) return;
         e.Cancel = true; closing = true; rectTimer.Stop();
         AgentView.CancelPending();
+        if (loginWindow is not null) await loginWindow.StopAndCloseAsync();
         lens?.Close();
         await worker.DisposeAsync();
         Close();

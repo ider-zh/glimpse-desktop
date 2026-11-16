@@ -4,7 +4,7 @@
 
 Glimpse is a Windows desktop reader. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. A user-triggered Agent uses reviewed session context to propose comments, replies, summaries, or suggestions as copyable cards.
 
-> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable DeepSeek / Xiaomi MiMo / custom Chat Completions API / CodeBuddy CLI engines, reviewed context and validated cards are implemented. 52 core tests, offline provider/controller tests and a real Worker-to-loopback API flow pass. Installed CodeBuddy preview/cancellation and offline-card clipboard checks pass; authenticated generation is currently blocked by CLI HTTP 401. **V0.1 is not complete**: live provider acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
+> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable engines, reviewed context and validated cards are implemented. 52 core tests and offline provider/controller/IPC checks pass. Authenticated CodeBuddy generation, cancellation, model selection and exact card copying pass on this Windows device, including `mimo-v2.6-pro`; login uses embedded xterm.js. **V0.1 is not complete**: direct external API acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
 
 ## Run and verify
 
@@ -28,6 +28,10 @@ Default data: `%LOCALAPPDATA%\Glimpse\sessions.db`. `GLIMPSE_DATA_DIR` overrides
 ## Agent engines
 
 In the **Agent** tab, configure an engine and click **保存并切换**. API profiles accept a base URL, model and a write-only API key protected with Windows DPAPI. DeepSeek and Xiaomi MiMo presets are editable; a custom OpenAI-compatible Chat Completions profile supports other providers and local APIs. CodeBuddy CLI uses your existing installation/login; npm installations are detected as a Node.js executable plus JavaScript entry, without a shell wrapper.
+
+CodeBuddy settings automatically fetch the logged-in CLI's available models via ACP metadata without inference, including after login closes. Select a model ID from the editable dropdown or type one, then save. Blank keeps the CLI default; fetching never changes the selected model automatically.
+
+**登录 CodeBuddy…** opens a local xterm.js terminal hosted by WebView2, with direct keyboard input, terminal selection/copy/paste, font sizing and automatic ConPTY resizing. Assets are bundled; no CDN is used. Complete account verification yourself in the browser using the displayed URL, close the terminal, then preview and generate. The Worker owns this isolated process; closing/disconnecting stops it. Terminal output/links remain ephemeral and the window is excluded from capture. WebView2 Runtime is required for the interactive component; a basic text fallback remains available. See [ADR 0006](docs/adr/0006-codebuddy-login-terminal.md).
 
 Select a task, optionally enter a question, then preview the filtered, budgeted context and explicitly generate. The exact reviewed messages are sent once; changing session or engine invalidates them. Cancellation does not block capture/pause. Copy validated cards or inspect a visibly marked plain-text fallback. Previous completed results are restored locally when reopening a session. No screenshots, tool calls, application control or automatic posting are sent. CI needs no real API keys or external model requests.
 

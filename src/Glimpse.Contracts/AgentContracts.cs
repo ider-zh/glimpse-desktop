@@ -17,3 +17,17 @@ public record AgentCard(string Title, string Text, string? Tone = null);
 public record AgentResult(Guid PreviewId, Guid SessionId, int DocumentRevision, string ProviderId,
     string TaskType, string Schema, string Status, List<AgentCard> Cards, string? FallbackText,
     string? Error, long ElapsedMs, List<string> Warnings);
+
+// Login terminal contents and URLs can contain short-lived authentication secrets.
+// They are ephemeral UI data, never session history or ordinary diagnostic text.
+public record CliLoginSnapshot(Guid LoginId, string Status, string ScreenText, List<string> Links, int? ExitCode = null,
+    string TerminalOutput = "", long OutputStart = 0, int Columns = 110, int Rows = 32)
+{
+    public override string ToString() => $"CLI login: {Status}, screenChars={ScreenText.Length}, terminalChars={TerminalOutput.Length}, links={Links.Count}";
+}
+public record CliLoginRequest(Guid LoginId);
+public record CliLoginResize(Guid LoginId, int Columns, int Rows);
+public record CliLoginInput(Guid LoginId, string Text)
+{
+    public override string ToString() => $"CLI login input: chars={Text.Length}";
+}

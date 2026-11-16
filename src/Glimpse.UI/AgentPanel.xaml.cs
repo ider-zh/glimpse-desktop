@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Glimpse.Contracts;
+using TextBox = System.Windows.Controls.TextBox;
 
 namespace Glimpse.UI;
 
@@ -13,6 +14,8 @@ public partial class AgentPanel : UserControl
     public Func<AgentProviderUpdate, CancellationToken, Task<AgentSettings>>? SaveSettingsAsync { get; set; }
     public Func<AgentTaskRequest, CancellationToken, Task<AgentContextPreview>>? PreviewAsync { get; set; }
     public Func<Guid, CancellationToken, Task<AgentResult>>? GenerateAsync { get; set; }
+    public Func<CancellationToken, Task>? LoginAsync { get; set; }
+    public Func<CancellationToken, Task<AgentModelCatalog>>? LoadModelsAsync { get; set; }
 
     private AgentSettings? settings;
     private AgentContextPreview? preview;
@@ -23,10 +26,15 @@ public partial class AgentPanel : UserControl
     private bool loading = true, busy, settingsDirty, operationIsSessionBound;
     private long operationVersion;
     private CancellationTokenSource? operationCancellation;
+    private CancellationTokenSource? modelCancellation;
+    private long modelVersion;
+    private bool loadingModels;
 
     public AgentPanel()
     {
         InitializeComponent();
+        Model.AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(SettingsChanged));
+        Model.SelectionChanged += (_, _) => MarkSettingsChanged();
         loading = false;
         UpdateControls();
         Loaded += async (_, _) =>
@@ -73,6 +81,7 @@ public partial class AgentPanel : UserControl
             selected.Kind == "codebuddy-cli" && string.IsNullOrWhiteSpace(selected.CliPath)) SettingsExpander.IsExpanded = true;
         InvalidatePreview();
         UpdateControls();
+        _ = RefreshModelsAsync();
     }
 
     public Task ReloadSettingsAsync()
@@ -94,6 +103,8 @@ public partial class AgentPanel : UserControl
         operationVersion++;
         operationCancellation?.Cancel();
         operationCancellation = null;
+        modelCancellation?.Cancel();
+        modelCancellation = null;
         busy = false;
         UpdateControls();
     }
@@ -111,6 +122,14 @@ public partial class AgentPanel : UserControl
         ContextBudget.Text = (settings?.ContextCharacterBudget ?? 12000).ToString(CultureInfo.InvariantCulture);
         ApiKey.Clear();
         bool isCli = profile.Kind == "codebuddy-cli";
+        modelVersion++;
+        modelCancellation?.Cancel();
+        modelCancellation = null;
+        loadingModels = false;
+        Model.ItemsSource = null;
+        Model.Text = profile.Model;
+        RefreshModelsButton.Visibility = ModelListStatus.Visibility = isCli ? Visibility.Visible : Visibility.Collapsed;
+        ModelListStatus.Text = "登录后会读取 CLI 模型列表；留空使用 CLI 默认模型。";
         ApiFields.Visibility = isCli ? Visibility.Collapsed : Visibility.Visible;
         CliFields.Visibility = isCli ? Visibility.Visible : Visibility.Collapsed;
         ClearKeyButton.Visibility = isCli ? Visibility.Collapsed : Visibility.Visible;
@@ -127,6 +146,7 @@ public partial class AgentPanel : UserControl
         SettingsNotice.Text = settingsDirty ? "保存后切换到所选引擎。" : "当前引擎已保存。";
         InvalidatePreview();
         UpdateControls();
+        _ = RefreshModelsAsync();
     }
 
     private void SettingsChanged(object sender, TextChangedEventArgs e) => MarkSettingsChanged();
@@ -193,6 +213,53 @@ public partial class AgentPanel : UserControl
     }
 
     private async void ReloadSettings(object sender, RoutedEventArgs e) => await ReloadSettingsAsync();
+
+    private async void LoginCodeBuddy(object sender, RoutedEventArgs e)
+    {
+        if (busy || settingsDirty || Providers.SelectedItem is not AgentProviderProfile { Kind: "codebuddy-cli" } || LoginAsync is null) return;
+        InvalidatePreview();
+        await RunOperationAsync("已打开 CodeBuddy 登录终端。", async cancellation =>
+        {
+            await LoginAsync(cancellation);
+            InvalidatePreview();
+            _ = RefreshModelsAsync();
+            SetStatus("登录终端已关闭。请重新预览并生成，确认 CodeBuddy 认证状态。");
+        }, sessionBound: false);
+    }
+
+    private async void RefreshModels(object sender, RoutedEventArgs e) => await RefreshModelsAsync();
+    public async Task RefreshModelsAsync()
+    {
+        if (LoadModelsAsync is null || Providers.SelectedItem is not AgentProviderProfile { Kind: "codebuddy-cli" } profile ||
+            profile.Id != settings?.SelectedProviderId || settingsDirty) return;
+        long version = ++modelVersion;
+        modelCancellation?.Cancel();
+        using var cancellation = new CancellationTokenSource();
+        modelCancellation = cancellation;
+        loadingModels = true;
+        ModelListStatus.Text = "正在从本机 CLI 读取模型列表，不会生成内容…";
+        UpdateControls();
+        try
+        {
+            var catalog = await LoadModelsAsync(cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            if (version != modelVersion || Providers.SelectedItem is not AgentProviderProfile selected || selected.Id != catalog.ProviderId) return;
+            string configured = Model.Text;
+            bool previous = loading; loading = true;
+            try { Model.ItemsSource = catalog.Models; Model.Text = configured; }
+            finally { loading = previous; }
+            ModelListStatus.Text = $"已读取 {catalog.Models.Count} 个 CLI 模型。可选择或输入模型 ID；留空使用 CLI 默认值。选择后请保存并切换。";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            if (version == modelVersion) ModelListStatus.Text = "模型列表暂不可用。请确认 CLI 已登录后刷新；也可直接填写模型 ID。";
+        }
+        finally
+        {
+            if (version == modelVersion) { loadingModels = false; modelCancellation = null; UpdateControls(); }
+        }
+    }
 
     private void TaskSelected(object sender, RoutedEventArgs e)
     {
@@ -369,6 +436,10 @@ public partial class AgentPanel : UserControl
         PreviewButton.IsEnabled = !busy && !settingsDirty && settings is not null && sessionId is not null && sessionHasText && PreviewAsync is not null;
         GenerateButton.IsEnabled = !busy && !settingsDirty && preview is not null && GenerateAsync is not null;
         CancelButton.IsEnabled = busy && operationIsSessionBound;
+        LoginButton.IsEnabled = !busy && !settingsDirty && LoginAsync is not null &&
+            Providers.SelectedItem is AgentProviderProfile { Kind: "codebuddy-cli" } selected && selected.Id == settings?.SelectedProviderId;
+        RefreshModelsButton.IsEnabled = !busy && !settingsDirty && !loadingModels && LoadModelsAsync is not null &&
+            Providers.SelectedItem is AgentProviderProfile { Kind: "codebuddy-cli" } cli && cli.Id == settings?.SelectedProviderId;
     }
     private void SetStatus(string message, bool problem = false)
     {
