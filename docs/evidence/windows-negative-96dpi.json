@@ -1,0 +1,49 @@
+{
+  "os": "Microsoft Windows NT 10.0.26100.0",
+  "processorCount": 12,
+  "dpi": 96,
+  "virtualDesktop": {
+    "x": -1920,
+    "y": 0,
+    "width": 3840,
+    "height": 1080
+  },
+  "rect": {
+    "x": -1842,
+    "y": 101,
+    "width": 650,
+    "height": 420,
+    "isValid": true
+  },
+  "selfCaptureMismatch": 0,
+  "clickThroughHitTest": true,
+  "physicalAlignment": true,
+  "languages": [
+    "en-US",
+    "zh-Hans-CN"
+  ],
+  "englishOcrMs": 221,
+  "englishLines": [
+    "Glimpse synthetic reading fixture",
+    "Click through the lens",
+    "Clicks: 0",
+    "Paragraph 000: synthetic article, safe for capture tests.",
+    "Paragraph 001 : synthetic article, safe for capture tests.",
+    "Paragraph 002: synthetic article, safe for capture tests.",
+    "Paragraph 003: synthetic article, safe for capture tests.",
+    "Paragraph 004: synthetic article, safe for capture tests."
+  ],
+  "chineseOcrMs": 362,
+  "chineseLines": [
+    "Glimpse synthetic reading fi xtu re",
+    "\u4E2D \u6587 \u514B \u8BA0 \u5356 \u6D4B \u8BD5 \uFF1A \u4FDD \u7559 \u6BCF \u4E00 \u6B21 \u7A33 \u5B9A \u89C2 \u5BDF \u3002",
+    "Clic through the ns",
+    "Clicks\u2022 0",
+    "Paragraph 000 synthetic article, safe for capture tests.",
+    "Paragraph 001 \uFF1A synthetic article, safe for capture tests.",
+    "Paragraph 002 \uFF0E synthetic article, safe for capture tests.",
+    "Paragraph 003 \uFF0E synthetic article, safe for capture tests.",
+    "Paragraph 004 synthetic article, safe for capture tests."
+  ],
+  "chineseCharacterErrorRate": 0.17647058823529413
+}

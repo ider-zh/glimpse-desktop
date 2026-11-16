@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Glimpse.Contracts/Glimpse.Contracts.csproj" />
+    <Project Path="src/Glimpse.Core/Glimpse.Core.csproj" />
+    <Project Path="src/Glimpse.Storage/Glimpse.Storage.csproj" />
+    <Project Path="src/Glimpse.UI/Glimpse.UI.csproj" />
+    <Project Path="src/Glimpse.Worker/Glimpse.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Glimpse.Tests/Glimpse.Tests.csproj" />
+    <Project Path="tests/Glimpse.Windows.Probe/Glimpse.Windows.Probe.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Glimpse.Benchmarks/Glimpse.Benchmarks.csproj" />
+  </Folder>
+</Solution>

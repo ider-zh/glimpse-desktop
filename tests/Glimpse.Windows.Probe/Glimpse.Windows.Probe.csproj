@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework><OutputType>Exe</OutputType><UseWPF>true</UseWPF>
+    <ApplicationManifest>../../src/Glimpse.Worker/app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Glimpse.UI/Glimpse.UI.csproj" />
+    <ProjectReference Include="../../src/Glimpse.Worker/Glimpse.Worker.csproj" />
+  </ItemGroup>
+  <Target Name="CopyProbeWorker" AfterTargets="Build">
+    <ItemGroup><ProbeWorkerFiles Include="../../src/Glimpse.Worker/bin/$(Configuration)/$(TargetFramework)/**/*" Exclude="../../src/Glimpse.Worker/bin/$(Configuration)/$(TargetFramework)/win-*/**/*" /></ItemGroup>
+    <Copy SourceFiles="@(ProbeWorkerFiles)" DestinationFiles="@(ProbeWorkerFiles->'$(OutDir)Worker/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
