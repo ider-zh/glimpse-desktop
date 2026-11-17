@@ -13,6 +13,6 @@ public partial class App : Application
             MessageBox.Show($"操作未完成：{args.Exception.GetType().Name}。请重试或重启应用。", "Glimpse");
             args.Handled = true;
         };
-        if (LaunchMainWindow) new MainWindow().Show();
+        if (LaunchMainWindow) new MainWindow(selectOnStartup: true).Show();
     }
 }

@@ -12,6 +12,7 @@ public sealed class LensWindow : Window
     private readonly PixelRect initial;
     public event Action<PixelRect>? RectangleChanged;
     public event Action? Moving;
+    public event Action? MoveCompleted;
     public const int Edge = 8, Header = 24;
     public PixelRect CaptureRect
     {
@@ -79,6 +80,7 @@ public sealed class LensWindow : Window
     private nint Hook(nint hwnd, int message, nint wparam, nint lparam, ref bool handled)
     {
         if (message == 0x0231) Moving?.Invoke(); // WM_ENTERSIZEMOVE
+        if (message == 0x0232) MoveCompleted?.Invoke(); // WM_EXITSIZEMOVE
         if (message != 0x0084) return 0; // WM_NCHITTEST
         long packed = lparam.ToInt64();
         int x = (short)(packed & 0xffff), y = (short)((packed >> 16) & 0xffff);

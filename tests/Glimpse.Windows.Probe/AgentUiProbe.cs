@@ -25,15 +25,25 @@ internal static class AgentUiProbe
         var session = new SessionData(Guid.NewGuid(), "Agent 界面测试", "paused", 1, 1, new(0,0,128,128), 3, [block], [], []);
         var settings = new AgentSettings("offline", [new("offline", "离线测试引擎", "openai-chat", "https://fixture.invalid/v1", "offline-model", "", "", 60, true)]);
         AgentContextPreview? preview = null;
+        int generations = 0;
         panel.LoadSettingsAsync = _ => Task.FromResult(settings);
         panel.PreviewAsync = (request, _) => Task.FromResult(preview = new SessionContextBuilder().Build(session, request));
-        panel.GenerateAsync = (_, cancellation) => new AgentRunner(new Fake()).RunPreparedAsync(preview!, cancellation: cancellation);
+        panel.GenerateAsync = (_, cancellation) => { generations++; return new AgentRunner(new Fake()).RunPreparedAsync(preview!, cancellation: cancellation); };
         window.Show();
         try
         {
             await Task.Delay(1200);
             await panel.ReloadSettingsAsync(); panel.SetSession(session);
             ((Expander)panel.FindName("SettingsExpander")).IsExpanded = false;
+            if (!await panel.PrepareFromToolbarAsync("reply", "简短、礼貌地回复。") || preview?.TaskType != "reply" ||
+                ((TextBox)panel.FindName("Prompt")).Text != "简短、礼貌地回复。")
+                throw new InvalidOperationException("Toolbar task and prompt did not reach the reviewed context.");
+            if (await panel.PrepareFromToolbarAsync("custom", "") || ((Button)panel.FindName("GenerateButton")).IsEnabled)
+                throw new InvalidOperationException("Empty custom toolbar prompt should not prepare generation.");
+            if (!await panel.PrepareFromToolbarAsync("custom", "解释文中的主要限制。") || preview?.TaskType != "custom")
+                throw new InvalidOperationException("Custom toolbar question did not prepare local context.");
+            if (!await panel.PrepareFromToolbarAsync("summary", "总结关键点。") || generations != 0)
+                throw new InvalidOperationException("Toolbar preparation must never trigger model inference.");
             ((Button)panel.FindName("PreviewButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Until(() => ((Button)panel.FindName("GenerateButton")).IsEnabled);
             if (((TextBox)panel.FindName("PreviewText")).Text.Contains("synthetic@example.test", StringComparison.Ordinal))
@@ -52,7 +62,7 @@ internal static class AgentUiProbe
             panel.SetSession(session with { Id = Guid.NewGuid() });
             if (((ItemsControl)panel.FindName("Cards")).Items.Count != 0)
                 throw new InvalidOperationException("Switching sessions retained unrelated cards.");
-            Console.WriteLine("AGENT UI PASS: actual WPF preview/generate controls, redacted display, validated cards, one-shot button state and session-change clearing. Render contains only synthetic UI data.");
+            Console.WriteLine("AGENT UI PASS: toolbar reply/custom/summary prompt bridge performs local preview only; actual WPF generate controls, redacted display, validated cards, one-shot button state and session-change clearing. Render contains only synthetic UI data.");
         }
         finally
         {

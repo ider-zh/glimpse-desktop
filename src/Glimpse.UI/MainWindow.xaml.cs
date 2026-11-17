@@ -14,6 +14,7 @@ public partial class MainWindow : Window
 {
     private readonly WorkerClient worker = new();
     private LensWindow? lens;
+    private DockedToolbarWindow? toolbar;
     private CodeBuddyLoginWindow? loginWindow;
     private SessionData? current;
     private PixelRect rect = new(100, 160, 700, 420);
@@ -22,8 +23,16 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer rectTimer = new() { Interval = TimeSpan.FromMilliseconds(300) };
     private bool resumeAfterMove;
     private bool loadingLanguages;
-    public MainWindow()
+    private readonly Func<PixelRect?>? regionSelection;
+    private readonly CancellationTokenSource shutdown = new();
+    private TaskCompletionSource<bool> workerConnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool workerConnected, selectingRegion, closingObservation, lensMoving, started;
+    public bool IsObserving => observing;
+    public PixelRect? SelectedRegion => lens?.CaptureRect;
+    public DockedToolbarWindow? DockedToolbar => toolbar;
+    public MainWindow(bool selectOnStartup = false, Func<PixelRect?>? regionSelection = null)
     {
+        this.regionSelection = regionSelection;
         InitializeComponent();
         UpdateViewLayout();
         AgentView.LoadSettingsAsync = async cancellation =>
@@ -47,8 +56,13 @@ public partial class MainWindow : Window
         };
         worker.ConnectionChanged += message => Dispatcher.BeginInvoke(() =>
         {
+            workerConnected = false;
+            resumeAfterMove = false; lensMoving = false; rectTimer.Stop();
+            if (workerConnection.Task.IsCompleted) workerConnection = new(TaskCreationOptions.RunContinuationsAsynchronously);
             observing = false; ObserveButton.Content = "开始观察";
             Status.Text = message; StateDot.Fill = Brushes.IndianRed;
+            UpdateToolbar();
+            if (!selectingRegion && !closing && !IsVisible) Show();
         });
         worker.Received += envelope => Dispatcher.BeginInvoke(async () =>
         {
@@ -59,13 +73,19 @@ public partial class MainWindow : Window
         {
             rectTimer.Stop();
             if (current is null) return;
-            if (await Send("rect", new RectRequest(rect)) && resumeAfterMove)
+            if (await Send("rect", new RectRequest(rect)) && resumeAfterMove && !lensMoving)
             {
                 resumeAfterMove = false;
                 await Send("observe", new { });
             }
         };
-        Loaded += (_, _) => worker.Start();
+        Loaded += async (_, _) =>
+        {
+            if (started) return;
+            started = true;
+            worker.Start();
+            if (selectOnStartup) await SelectObservationRegionAsync(startNewSession: true);
+        };
         Closing += OnClosing;
     }
     private async Task Receive(Envelope envelope)
@@ -73,6 +93,7 @@ public partial class MainWindow : Window
         switch (envelope.MessageType)
         {
             case "ready":
+                workerConnected = true;
                 generation = 0;
                 loadingLanguages = true;
                 var languages = envelope.Payload.GetProperty("languages").EnumerateArray().Select(l => l.GetString()!).ToList();
@@ -92,6 +113,8 @@ public partial class MainWindow : Window
                 await Send("list", new { });
                 await AgentView.ReloadSettingsAsync();
                 if (current is not null) await Send("resume", new SessionRequest(current.Id));
+                workerConnection.TrySetResult(true);
+                UpdateToolbar();
                 break;
             case "sessions":
                 Guid? selected = (Sessions.SelectedItem as SessionSummary)?.Id ?? current?.Id;
@@ -142,6 +165,7 @@ public partial class MainWindow : Window
                     _ => Brushes.SlateGray
                 };
                 if (update.OcrMs > 0) Metrics.Text = $"{update.OcrLanguage} · OCR {update.OcrMs} ms · 保存 {update.CommitMs} ms";
+                UpdateToolbar();
                 break;
         }
     }
@@ -161,6 +185,7 @@ public partial class MainWindow : Window
         Snapshots.SelectedItem = rows.Find(r => r.Snapshot.Sequence == selected) ?? rows.FirstOrDefault();
         Gaps.Text = current.Gaps.Count == 0 ? "暂无警告。没有警告也不代表内容完整。快速滚过的内容无法重建。" :
             string.Join("\n\n", current.Gaps.Select(g => $"#{g.FromSequence} → #{g.ToSequence} · 可能遗漏（推测）\n{g.Reason}"));
+        UpdateToolbar();
     }
     private async Task CancelAgentAsync(Guid previewId)
     {
@@ -202,6 +227,8 @@ public partial class MainWindow : Window
     {
         Status.Text = message; StateDot.Fill = Brushes.IndianRed;
         observing = false; ObserveButton.Content = "开始观察";
+        UpdateToolbar();
+        if (!closing && !selectingRegion && !IsVisible) Show();
     }
     private async void LanguageSelected(object sender, SelectionChangedEventArgs e)
     {
@@ -216,32 +243,57 @@ public partial class MainWindow : Window
     private bool EnsureLens()
     {
         if (!excluded) { ShowError("窗口排除验证失败，观察已禁用。"); return false; }
-        if (lens is not null) return true;
+        if (lens is not null)
+        {
+            lens.Show(); toolbar?.Show(); toolbar?.Follow(lens.CaptureRect);
+            return true;
+        }
         try
         {
             lens = new LensWindow(rect);
             lens.RectangleChanged += value =>
             {
                 rect = value;
+                toolbar?.Follow(value);
                 Geometry.Text = $"物理像素 ({rect.X}, {rect.Y}) · {rect.Width} × {rect.Height}";
                 rectTimer.Stop(); rectTimer.Start();
             };
             lens.Moving += async () =>
             {
+                lensMoving = true;
                 resumeAfterMove = observing;
                 if (observing) await Send("pause", new { });
             };
+            lens.MoveCompleted += () =>
+            {
+                lensMoving = false;
+                rectTimer.Stop(); rectTimer.Start();
+            };
+            lens.Closed += async (_, _) =>
+            {
+                if (!closing && !closingObservation) await CloseObservationAsync();
+            };
             lens.Show();
+            toolbar = new DockedToolbarWindow { Owner = lens };
+            toolbar.RecordsRequested += OpenRecords;
+            toolbar.ToggleObservationRequested += async () => await ToggleObservationAsync();
+            toolbar.ReselectRequested += async () => await SelectObservationRegionAsync();
+            toolbar.CloseLensRequested += async () => await CloseObservationAsync();
+            toolbar.PromptRequested += async (task, prompt) => await OpenToolbarPromptAsync(task, prompt);
+            toolbar.Follow(rect); toolbar.Show(); UpdateToolbar();
             return true;
         }
-        catch (Exception ex) { lens?.Close(); lens = null; ShowError(ex.Message); return false; }
+        catch (Exception ex)
+        {
+            closingObservation = true;
+            toolbar?.CloseForOwner(); toolbar = null;
+            lens?.Close(); lens = null; closingObservation = false;
+            ShowError(ex.Message); return false;
+        }
     }
     private async void NewSession(object sender, RoutedEventArgs e)
     {
-        resumeAfterMove = false;
-        if (!EnsureLens()) return;
-        rect = lens!.CaptureRect;
-        await Send("new", new StartRequest($"阅读 {DateTime.Now:MM-dd HH:mm:ss}", rect));
+        await SelectObservationRegionAsync(startNewSession: true);
     }
     private async void OpenSession(object sender, RoutedEventArgs e)
     {
@@ -250,18 +302,48 @@ public partial class MainWindow : Window
             await Send("resume", new SessionRequest(summary.Id));
     }
     private async void SelectRegion(object sender, RoutedEventArgs e)
+        => await SelectObservationRegionAsync();
+
+    public async Task SelectObservationRegionAsync(bool startNewSession = false)
     {
+        if (selectingRegion || closing) return;
+        selectingRegion = true;
         resumeAfterMove = false; rectTimer.Stop();
-        await Send("pause", new { });
-        lens?.Hide();
-        var selector = new SelectionWindow();
-        if (selector.ShowDialog() == true && selector.Selected is { } selected) rect = selected;
-        if (lens is not null) { lens.Restore(rect); lens.Show(); }
-        else if (!EnsureLens()) return;
-        if (current is null) await Send("new", new StartRequest($"阅读 {DateTime.Now:MM-dd HH:mm:ss}", rect));
-        else await Send("rect", new RectRequest(rect));
+        try
+        {
+            if (workerConnected && !await Send("pause", new { })) return;
+            lens?.Hide(); toolbar?.Hide(); Hide();
+            PixelRect? selected;
+            if (regionSelection is not null) selected = regionSelection();
+            else
+            {
+                var selector = new SelectionWindow();
+                selected = selector.ShowDialog() == true ? selector.Selected : null;
+            }
+            if (selected is null || !selected.IsValid)
+            {
+                lens?.Show(); toolbar?.Show(); Show(); Activate();
+                Status.Text = "已取消框选，观察保持停止。可重新选择区域或打开已有记录。";
+                UpdateToolbar(); return;
+            }
+            rect = selected;
+            await workerConnection.Task.WaitAsync(TimeSpan.FromSeconds(20), shutdown.Token);
+            if (closing || !EnsureLens()) return;
+            lens!.Restore(rect); toolbar?.Follow(rect); rectTimer.Stop();
+            bool prepared = startNewSession || current is null ?
+                await Send("new", new StartRequest($"阅读 {DateTime.Now:MM-dd HH:mm:ss}", rect)) :
+                await Send("rect", new RectRequest(rect));
+            if (!prepared || !await Send("observe", new { })) { Show(); return; }
+            Hide();
+        }
+        catch (OperationCanceledException) when (closing) { }
+        catch (Exception ex) { ShowError(ex is TimeoutException ? "Worker 尚未就绪。请等待连接后重新选择区域。" : "框选未能完成，请重新选择区域。"); Show(); }
+        finally { selectingRegion = false; }
     }
     private async void ToggleObserve(object sender, RoutedEventArgs e)
+        => await ToggleObservationAsync();
+
+    public async Task ToggleObservationAsync()
     {
         resumeAfterMove = false;
         if (observing) { await Send("pause", new { }); return; }
@@ -278,10 +360,36 @@ public partial class MainWindow : Window
         if (current is not null && EnsureLens()) await Send("refresh", new { });
     }
     private async void CloseLens(object sender, RoutedEventArgs e)
+        => await CloseObservationAsync();
+
+    public async Task CloseObservationAsync()
     {
+        if (closingObservation) return;
+        closingObservation = true;
         resumeAfterMove = false; rectTimer.Stop();
-        await Send("pause", new { });
-        lens?.Close(); lens = null;
+        lensMoving = false;
+        try
+        {
+            if (workerConnected) await Send("pause", new { });
+            observing = false; ObserveButton.Content = "开始观察";
+            toolbar?.CloseForOwner(); toolbar = null;
+            lens?.Close(); lens = null;
+            if (!closing) { OpenRecords(); Status.Text = "观察框已关闭，已记录文字保留。选择区域可再次开始。"; }
+        }
+        finally { closingObservation = false; }
+    }
+    private void UpdateToolbar() => toolbar?.UpdateState(observing, Status.Text,
+        current?.Blocks.Count ?? 0, current?.Blocks.Sum(b => b.Text.Length) ?? 0, current?.Blocks.Count > 0);
+    private void OpenRecords()
+    {
+        Views.SelectedIndex = 1;
+        Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate();
+    }
+    private async Task OpenToolbarPromptAsync(string taskType, string prompt)
+    {
+        Views.SelectedItem = AgentTab;
+        Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate();
+        await AgentView.PrepareFromToolbarAsync(taskType, prompt);
     }
     private async void DeleteSession(object sender, RoutedEventArgs e)
     {
@@ -293,7 +401,8 @@ public partial class MainWindow : Window
         await Send("delete", new SessionRequest(selected.Id));
         if (current?.Id == selected.Id)
         {
-            current = null; lens?.Close(); lens = null; Document.Clear(); SnapshotDetail.Clear();
+            await CloseObservationAsync();
+            current = null; Document.Clear(); SnapshotDetail.Clear();
             AgentView.SetSession(null);
             Snapshots.ItemsSource = null; Counts.Text = "会话已删除"; SessionTitle.Text = "选择区域，开始一段阅读";
         }
@@ -322,9 +431,11 @@ public partial class MainWindow : Window
     {
         if (closing) return;
         e.Cancel = true; closing = true; rectTimer.Stop();
+        shutdown.Cancel();
         AgentView.CancelPending();
         if (loginWindow is not null) await loginWindow.StopAndCloseAsync();
-        lens?.Close();
+        toolbar?.CloseForOwner(); toolbar = null;
+        lens?.Close(); lens = null;
         await worker.DisposeAsync();
         Close();
     }

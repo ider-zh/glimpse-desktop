@@ -28,12 +28,12 @@
     </StackPanel>
     <TabControl x:Name="Views" Grid.Row="4" BorderBrush="#DCE5EA" Background="White" SelectionChanged="ViewChanged">
       <TabItem x:Name="AgentTab" Header="Agent"><local:AgentPanel x:Name="AgentView"/></TabItem>
-      <TabItem Header="累计文本"><TextBox x:Name="Document" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" FontSize="14" Padding="14" Text="尚无记录。选择区域后，点击开始观察；停留 1 秒后识别。"/></TabItem>
+      <TabItem Header="累计文本"><TextBox x:Name="Document" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" FontSize="14" Padding="14" Text="尚无记录。拖动选择区域后自动观察；画面稳定 1 秒后识别。"/></TabItem>
       <TabItem Header="快照 / 来源"><Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="130"/><RowDefinition Height="*"/></Grid.RowDefinitions><ListBox x:Name="Snapshots" DisplayMemberPath="Label" SelectionChanged="SnapshotSelected"/><TextBox Grid.Row="1" x:Name="SnapshotDetail" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0"/></Grid></TabItem>
       <TabItem Header="可能遗漏"><TextBox x:Name="Gaps" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0" Padding="14" Text="暂无警告。没有警告也不代表内容完整。"/></TabItem>
       <TabItem Header="使用说明"><ScrollViewer VerticalScrollBarVisibility="Auto"><TextBlock Margin="14" TextWrapping="Wrap" LineHeight="24">
         <Run FontWeight="SemiBold">本地 Session Reader</Run><LineBreak/><LineBreak/>
-        <Run>1. 新建会话或恢复已有会话。</Run><LineBreak/><Run>2. 拖动选择一个区域，点击开始观察。</Run><LineBreak/><Run>3. 通过镂空区域操作原应用，停留 1 秒后识别。</Run><LineBreak/><Run>4. 拖动取景框上边框移动，拖动边角缩放。</Run><LineBreak/><Run>5. 随时暂停；关闭取景框不会删除会话。</Run><LineBreak/><LineBreak/>
+        <Run>1. 打开后拖动选择区域，完成后自动观察。</Run><LineBreak/><Run>2. 通过吸附工具栏打开记录区、停止或重新框选。</Run><LineBreak/><Run>3. 通过镂空区域操作原应用，画面稳定 1 秒后识别。</Run><LineBreak/><Run>4. 拖动取景框上边框移动，拖动边角缩放。</Run><LineBreak/><Run>5. 关闭观察框会停止观察，已记录内容保留。</Run><LineBreak/><LineBreak/>
         <Run>绿色表示稳定帧已处理并保存，不代表识别准确或内容完整。快速滚动经过的内容无法补回。</Run><LineBreak/><LineBreak/>
         <Run>截图只在内存中存在。OCR 文本保存在本机 SQLite，可导出或删除。只有在 Agent 页预览并点击生成后，才会把已过滤的选取上下文交给所选引擎；不操作其他应用。</Run><LineBreak/><LineBreak/>
         <Run>OCR 使用 Windows 已安装的语言。缺少识别语言时，按 Windows 设置提示安装；可用 GLIMPSE_OCR_LANGUAGE 指定语言。</Run><LineBreak/><LineBreak/>
