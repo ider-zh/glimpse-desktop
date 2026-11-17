@@ -4,7 +4,7 @@
 
 Glimpse is a Windows desktop reader. The user selects one fixed screen region with a transparent, click-through frame; local OCR observes stable frames, deduplicates overlapping text during scrolling, and accumulates a recoverable **Session Document**. A user-triggered Agent uses reviewed session context to propose comments, replies, summaries, or suggestions as copyable cards.
 
-> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable engines, reviewed context and validated cards are implemented. 52 core tests and offline provider/controller/IPC checks pass. Authenticated CodeBuddy generation, cancellation, model selection and exact card copying pass on this Windows device, including `mimo-v2.6-pro`; login uses embedded xterm.js. **V0.1 is not complete**: direct external API acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
+> Status: **working Reader + Agent development preview**. Local OCR, SQLite resume, switchable engines, one-click sidebar tasks and validated cards are implemented. 58 core tests and offline provider/controller/IPC checks pass. Authenticated CodeBuddy inline generation, cancellation, model selection and exact card copying pass on this Windows device, including `mimo-v2.6-pro`; login uses embedded xterm.js. **V0.1 is not complete**: direct external API acceptance, mixed-DPI hardware, broader OCR accuracy and eight-hour hardening remain open. See [measured validation](docs/VALIDATION.md).
 
 ## Run and verify
 
@@ -13,7 +13,7 @@ Requires Windows x64, Windows 10 build 19041 or later, an installed Windows OCR 
 ```powershell
 dotnet build Glimpse.slnx -c Release
 dotnet run --project src/Glimpse.UI -c Release
-./scripts/verify.ps1                   # build, 52 tests, corpus, provider/Agent/IPC/cancel/restart probes
+./scripts/verify.ps1                   # build, 58 tests, corpus, provider/Agent/IPC/cancel/restart probes
 ./scripts/verify.ps1 -InteractiveWindows # additionally opens synthetic Windows capture/OCR probes
 ./scripts/publish.ps1                  # artifacts/portable/Glimpse.UI.exe and portable ZIP
 # If that folder is currently running: ./scripts/publish.ps1 -OutputName agent-preview
@@ -21,7 +21,7 @@ dotnet run --project src/Glimpse.UI -c Release
 
 On Linux, run only `dotnet test tests/Glimpse.Tests -c Release` and `dotnet run --project tools/Glimpse.Benchmarks -c Release`; these do not verify Windows behavior. CI includes both Linux core and Windows build/package jobs.
 
-Opening the app immediately asks you to draw a region; completing a valid selection starts local observation. An attached toolbar follows the lens with record access, start/stop, reselect, close-frame and editable Agent task prompts. Stop/close preserves records; canceling selection leaves capture stopped, and reopening saved sessions still starts paused. Toolbar prompts open reviewed context before a separate Generate action. Move/resize the hollow lens and operate the underlying application through it. See the [Chinese user guide](docs/USER_GUIDE.md) and [ADR 0007](docs/adr/0007-selection-first-toolbar.md).
+Opening the app immediately asks you to draw a region; completing a valid selection starts local observation. An attached sidebar follows the lens with record access, start/stop, reselect, close-frame, direct task buttons and custom questions. Answers/cancel/copy stay inline; settings opens only through its explicit entry. Each task click builds filtered context and submits once, with optional inline payload inspection. Stop/close preserves records; canceling selection leaves capture stopped, and reopening saved sessions still starts paused. See the [Chinese user guide](docs/USER_GUIDE.md), [ADR 0007](docs/adr/0007-selection-first-toolbar.md) and [sidebar update](docs/adr/0008-inline-sidebar-actions.md).
 
 Default data: `%LOCALAPPDATA%\Glimpse\sessions.db`. `GLIMPSE_DATA_DIR` overrides the data folder; `GLIMPSE_OCR_LANGUAGE` selects an installed language. Observation never writes screenshots or uploads OCR context by itself. The selected CodeBuddy engine can fetch account model metadata on loading settings; inference still requires Generate. SQLite contains the OCR text you explicitly chose to observe.
 
@@ -33,7 +33,7 @@ CodeBuddy settings automatically fetch the logged-in CLI's available models via 
 
 **登录 CodeBuddy…** opens a local xterm.js terminal hosted by WebView2, with direct keyboard input, terminal selection/copy/paste, font sizing and automatic ConPTY resizing. Assets are bundled; no CDN is used. Complete account verification yourself in the browser using the displayed URL, close the terminal, then preview and generate. The Worker owns this isolated process; closing/disconnecting stops it. Terminal output/links remain ephemeral and the window is excluded from capture. WebView2 Runtime is required for the interactive component; a basic text fallback remains available. See [ADR 0006](docs/adr/0006-codebuddy-login-terminal.md).
 
-Select a task, optionally enter a question, then preview the filtered, budgeted context and explicitly generate. The exact reviewed messages are sent once; changing session or engine invalidates them. Cancellation does not block capture/pause. Copy validated cards or inspect a visibly marked plain-text fallback. Previous completed results are restored locally when reopening a session. No screenshots, tool calls, application control or automatic posting are sent. CI needs no real API keys or external model requests.
+In the sidebar, click a task or send a custom question to generate once from fresh filtered, budgeted context; answers appear there without opening the inspector. Progress/cancel stays visible and the previous answer survives a failed/canceled retry. The main inspector also retains its optional preview-first workflow. Context IDs are one-shot and tied to session/engine; cancellation does not block capture/pause. Copy validated cards or inspect a visibly marked plain-text fallback. No screenshots, tool calls, application control or automatic posting are sent. CI needs no real API keys or external model requests.
 
 Automatic small-text OCR enhancement is enabled; original size and fixed 2× are available in the inspector. `GLIMPSE_OCR_SCALE` accepts 0/1/2. Generated small-font corpus measurements are recorded separately from real-page accuracy claims.
 

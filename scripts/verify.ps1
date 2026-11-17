@@ -23,6 +23,7 @@ try {
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --ocr-corpus
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --docked-toolbar artifacts/docked-toolbar.png
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-ui artifacts/agent-cards.png
+        Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --sidebar-agent artifacts/sidebar-agent.png
     }
 }
 finally { Pop-Location }

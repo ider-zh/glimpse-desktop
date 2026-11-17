@@ -16,6 +16,13 @@ public static class CardValidator
         "analysis" or "custom" => "analysis.v1",
         _ => throw new ArgumentException("Unknown Agent task.", nameof(task))
     };
+    public static string OutputExampleFor(string task) => SchemaFor(task) switch
+    {
+        "comment.v1" => "{\"schema\":\"comment.v1\",\"options\":[{\"tone\":\"简洁\",\"text\":\"根据阅读内容撰写的实际评论\"}]}",
+        "reply.v1" => "{\"schema\":\"reply.v1\",\"options\":[{\"tone\":\"礼貌\",\"text\":\"根据阅读内容撰写的实际回复\"}]}",
+        "summary.v1" => "{\"schema\":\"summary.v1\",\"keyPoints\":[\"根据阅读内容提炼的实际要点\"]}",
+        _ => "{\"schema\":\"analysis.v1\",\"findings\":[\"根据阅读内容得出的实际结论\"],\"caveats\":[]}"
+    };
     public static string JsonSchemaFor(string task)
     {
         string schema = SchemaFor(task);

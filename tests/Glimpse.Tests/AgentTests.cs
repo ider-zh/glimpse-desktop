@@ -79,6 +79,22 @@ public class AgentTests
         Assert.Throws<InvalidOperationException>(() => new SessionContextBuilder().Build(session, new(Guid.NewGuid(), "summary")));
     }
     [Theory]
+    [InlineData("comment")]
+    [InlineData("reply")]
+    [InlineData("summary")]
+    [InlineData("analysis")]
+    [InlineData("custom")]
+    public void ModelAnswerExamplesAreActualValidatedInstances(string task)
+    {
+        string example = CardValidator.OutputExampleFor(task);
+        Assert.True(CardValidator.Validate(example, CardValidator.SchemaFor(task)).IsValid);
+        using var instance = JsonDocument.Parse(example);
+        Assert.Equal(CardValidator.SchemaFor(task), instance.RootElement.GetProperty("schema").GetString());
+        Assert.False(instance.RootElement.TryGetProperty("properties", out _));
+        var preview = Preview(Session("Synthetic reading evidence."), task, "Explain briefly");
+        Assert.Contains(example, preview.SystemPrompt);
+    }
+    [Theory]
     [InlineData("comment.v1", "{\"schema\":\"comment.v1\",\"options\":[{\"tone\":\"friendly\",\"text\":\"  copy exactly this text  \"}]}", "  copy exactly this text  ")]
     [InlineData("reply.v1", "{\"schema\":\"reply.v1\",\"options\":[{\"tone\":\"brief\",\"text\":\"A precise reply\"}]}", "A precise reply")]
     [InlineData("summary.v1", "{\"schema\":\"summary.v1\",\"keyPoints\":[\"one point\"]}", "one point")]
@@ -91,6 +107,7 @@ public class AgentTests
     }
     [Theory]
     [InlineData("not json")]
+    [InlineData("{\"type\":\"object\",\"properties\":{\"schema\":{\"const\":\"summary.v1\"}}}")]
     [InlineData("{\"schema\":\"summary.v1\",\"keyPoints\":[]}")]
     [InlineData("{\"schema\":\"summary.v1\",\"keyPoints\":[\"\"]}")]
     [InlineData("{\"schema\":\"summary.v1\",\"keyPoints\":[\"one\"],\"execute\":\"post it\"}")]

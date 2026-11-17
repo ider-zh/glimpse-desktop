@@ -20,6 +20,7 @@ dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agen
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-terminal-tests
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-ui artifacts/codebuddy-login-ui.png
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --docked-toolbar artifacts/docked-toolbar.png
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --sidebar-agent artifacts/sidebar-agent.png
 ./scripts/publish.ps1
 ```
 
@@ -36,6 +37,7 @@ dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --diag
 # Opt-in real model metadata and inference with the prepared synthetic fixture:
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --codebuddy-models artifacts/my-new-codebuddy-check
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --live-agent-ui artifacts/my-new-codebuddy-check artifacts/live-cards.png
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --live-sidebar-agent artifacts/my-new-codebuddy-check artifacts/live-sidebar.png
 Remove-Item Env:GLIMPSE_DATA_DIR
 ```
 
@@ -46,7 +48,7 @@ Remove-Item Env:GLIMPSE_DATA_DIR
 | Check | Observed result | Evidence / limits |
 |---|---|---|
 | Release solution build | 0 warnings / 0 errors | Windows source build |
-| Core/storage/Agent tests | 52 passed | Reader tests plus image preparation, Agent context/card/fake-provider tests, schema-v1 migration/Agent history/cascade deletion and safe actionable provider errors |
+| Core/storage/Agent tests | 58 passed | Reader/context/card/history/error tests plus all five task answer examples validated against their actual schemas, and schema-declaration rejection regression |
 | Labeled synthetic corpus | 9 scenarios pass; block precision/recall/order = 1; duplicate/erroneous merge counts = 0 | [raw metrics](evidence/synthetic-v1.json). Thresholds apply only to this corpus; they are not real OCR accuracy claims. |
 | Own-window exclusion | zero pixel mismatch with a magenta excluded window plus lens | 650×420 physical pixels; [negative-monitor native output](evidence/windows-negative-96dpi.json) |
 | Click-through and alignment | underlying fixture receives hit test; actual button click increments counter; wheel scroll changes fixture | Native WindowFromPoint plus computer-use checks; physical crop exact at current 96 DPI |
@@ -69,7 +71,9 @@ Remove-Item Env:GLIMPSE_DATA_DIR
 | UI | controls fit the default inspector; synthetic click/scroll/new-session/start/close flow checked | WPF visual-tree render inspected. External screenshots intentionally exclude the app's windows. |
 | Attached observation toolbar | Physical-pixel right/left docking, native clickable/excluded window, negative-monitor following and all task/control events pass | Actual 96-DPI Windows placement and native hit testing; own WPF render inspected. Nearly full-screen placement clamps controls into the work area. Mixed-DPI/disconnect matrix remains open. |
 | Selection-first workflow | Startup selector invoked once; completing selection starts actual synthetic OCR, record access preserves observation, stop/restart/close and canceled selection pass | `--docked-toolbar`: deterministic injected region selector, actual MainWindow/lens/Worker/SQLite and an isolated generated reading window. No user screen content or model calls. Closing frame retains records; reconnect/saved restore remain paused. |
-| Toolbar Agent bridge | Reply/custom/summary fields reach locally reviewed context; blank custom prompts rejected; no inference during preparation | `--agent-ui`: real WPF controls and fake inference counter. A separate Generate click remains required. |
+| Inspector preview bridge | Reply/custom/summary fields reach locally reviewed context; blank custom prompts rejected; no inference during inspector preparation | `--agent-ui`: the legacy inspector retains its separate Generate action. The owner-authorized sidebar flow below now sends on a direct task click. |
+| Inline sidebar UX | Four direct task buttons plus custom question send, inline validated cards/copy, explicit settings, task-specific feedback, sticky progress/cancel and retained previous answers pass | `--sidebar-agent`: real WPF handlers, local fake provider and exact clipboard checks. Busy double-click, empty input, error/timeout, cancel/late-result/session/close cases covered. Interaction-designer review of real success/error renders passed after two rounds. |
+| Authenticated sidebar flow | One click produced 6 validated MiMo summary cards inline; all copied exactly; next real CLI call canceled while preserving labeled previous cards and SQLite history | `--live-sidebar-agent`, existing isolated synthetic session only. No main-window popup. Initial attempts exposed a transient clipboard lock and a model returning schema instead of content; bounded clipboard access retries and clearer answer-instance instructions fixed the observed path without relaxing schema validation. |
 | Distribution | self-contained win-x64 folder and ZIP generated; packaged UI/Worker connect with `DOTNET_ROOT` pointing to a deliberately absent folder and multilevel lookup disabled | UI and Worker are independently published; see publish script. Both runtimeconfig files declare included frameworks. A genuinely fresh machine remains untested. |
 
 The recorded end-to-end run used a 720×480 region for approximately 28 seconds and reported P95 OCR + commit 66 ms and 142 MiB working set for the **single in-process probe**, including its WPF fixture. This excludes stability wait and does not represent the two-process production working set or 1080p performance. See raw output for exact duration. One native run and a short fixture are not an eight-hour soak or a statistically representative benchmark.

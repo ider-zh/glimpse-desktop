@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using Glimpse.Agent;
 using Glimpse.Contracts;
 using Glimpse.UI;
 using TextBox = System.Windows.Controls.TextBox;
@@ -25,14 +26,21 @@ internal static class DockedToolbarProbe
         int records = 0, toggles = 0, reselects = 0, closes = 0;
         bool negativeMonitor = false;
         var prompts = new List<(string Task, string Prompt)>();
+        Guid sessionId = Guid.NewGuid();
         toolbar.RecordsRequested += () => records++;
         toolbar.ToggleObservationRequested += () => toggles++;
         toolbar.ReselectRequested += () => reselects++;
         toolbar.CloseLensRequested += () => closes++;
-        toolbar.PromptRequested += (task, prompt) => prompts.Add((task, prompt));
+        toolbar.GenerateAsync = (task, prompt, _) =>
+        {
+            prompts.Add((task, prompt));
+            return Task.FromResult(new AgentResult(Guid.NewGuid(), sessionId, 4, "offline-sidebar", task,
+                CardValidator.SchemaFor(task), "completed", [new("合成卡片", "合成工具栏测试结果。")], null, null, 0, []));
+        };
         try
         {
             lens.Show(); toolbar.Show();
+            toolbar.SetSession(sessionId);
             toolbar.UpdateState(true, "合成测试 · 正在记录", 4, 144, true);
             toolbar.Follow(rect);
             await Task.Delay(250);
@@ -51,15 +59,14 @@ internal static class DockedToolbarProbe
 
             Click(toolbar, "RecordsButton"); Click(toolbar, "ObserveButton"); Click(toolbar, "ReselectButton");
             Check(records == 1 && toggles == 1 && reselects == 1, "Record/toggle/reselect events forwarded once");
-            var choice = Find<ComboBox>(toolbar, "PromptTask");
             var prompt = Find<TextBox>(toolbar, "PromptInput");
-            foreach (string task in new[] { "comment", "reply", "summary", "analysis", "custom" })
+            foreach (var (button, task) in new[] { ("CommentButton", "comment"), ("ReplyButton", "reply"),
+                ("SummaryButton", "summary"), ("AdviceButton", "analysis"), ("SendButton", "custom") })
             {
-                var item = choice.Items.Cast<ComboBoxItem>().Single(i => Equals(i.Tag, task));
-                choice.SelectedItem = item;
                 prompt.Text = task == "custom" ? "合成问题：请按两点解释。" : "合成补充：保持简洁。";
                 int before = prompts.Count;
-                Click(toolbar, "PreviewButton");
+                Click(toolbar, button);
+                await Until(() => prompts.Count == before + 1 && Find<Button>(toolbar, button).IsEnabled);
                 Check(prompts.Count == before + 1 && prompts[^1] == (task, prompt.Text), "Task and custom prompt forwarded exactly");
             }
             toolbar.UpdateState(false, "合成测试 · 已停止记录", 4, 144, true);
@@ -128,7 +135,7 @@ internal static class DockedToolbarProbe
             Check(selections == 1, "App startup invokes region selection exactly once");
             Check(!Intersects(Bounds(active.DockedToolbar!), capture), "Startup toolbar stays outside synthetic capture");
             await Until(() => !Find<TextBlock>(active.DockedToolbar!, "Counts").Text.StartsWith("已记录 0 ", StringComparison.Ordinal));
-            Check(Find<Button>(active.DockedToolbar!, "PreviewButton").IsEnabled, "Synthetic OCR makes toolbar prompts available");
+            Check(Find<Button>(active.DockedToolbar!, "SummaryButton").IsEnabled, "Synthetic OCR makes one-click sidebar tasks available");
             Click(active.DockedToolbar!, "RecordsButton");
             await Until(() => active.IsVisible && Find<TabControl>(active, "Views").SelectedIndex == 1);
             Check(selections == 1 && active.IsObserving, "Opening records preserves observation without repeating startup selection");
@@ -172,7 +179,7 @@ internal static class DockedToolbarProbe
 
     private static void PlacementChecks()
     {
-        const int width = 360, height = 290;
+        const int width = 360, height = 760;
         var primary = new PixelRect(0, 0, 1920, 1080);
         var rightCapture = new PixelRect(120, 160, 620, 400);
         var right = ToolbarPlacement.Place(rightCapture, width, height, primary);

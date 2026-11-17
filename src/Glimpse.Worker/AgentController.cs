@@ -64,6 +64,9 @@ public sealed class AgentController(ProviderSettingsStore settings, SessionRepos
 
     public void Cancel(Guid? previewId = null)
     {
+        // A cancel can reach the serialized pipe loop before its background run
+        // starts. Retire that prepared ID as well as canceling an active call.
+        if (previewId is Guid preparedId) previews.TryRemove(preparedId, out _);
         lock (state)
             if (previewId is null || activePreview == previewId) active?.Cancel();
     }

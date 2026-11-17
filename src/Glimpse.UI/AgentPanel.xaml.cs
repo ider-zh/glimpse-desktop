@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -29,6 +28,7 @@ public partial class AgentPanel : UserControl
     private CancellationTokenSource? modelCancellation;
     private long modelVersion;
     private bool loadingModels;
+    public bool HasUnsavedSettings => settingsDirty;
 
     public AgentPanel()
     {
@@ -508,10 +508,11 @@ public partial class AgentPanel : UserControl
         if (sender is Button { Tag: string text }) Copy(text);
     }
     private void CopyFallback(object sender, RoutedEventArgs e) => Copy(FallbackText.Text);
-    private void Copy(string text)
+    private async void Copy(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
-        try { Clipboard.SetText(text); SetStatus("已复制文字。不会自动发送。"); }
-        catch (ExternalException) { SetStatus("剪贴板正被其他应用使用，请重试复制。", true); }
+        SetStatus("正在复制…");
+        bool copied = await ClipboardCopy.TrySetTextAsync(text);
+        SetStatus(copied ? "已复制文字。不会自动发送。" : "剪贴板正被其他应用使用，请重试复制。", !copied);
     }
 }

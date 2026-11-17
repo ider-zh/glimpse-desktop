@@ -62,7 +62,7 @@ public partial class MainWindow : Window
             observing = false; ObserveButton.Content = "开始观察";
             Status.Text = message; StateDot.Fill = Brushes.IndianRed;
             UpdateToolbar();
-            if (!selectingRegion && !closing && !IsVisible) Show();
+            if (!selectingRegion && !closing && !IsVisible && toolbar is null) Show();
         });
         worker.Received += envelope => Dispatcher.BeginInvoke(async () =>
         {
@@ -140,7 +140,11 @@ public partial class MainWindow : Window
                         Guid restoredId = current.Id;
                         var history = (await worker.RequestAsync("agent-history", new SessionRequest(restoredId))).Read<List<AgentResult>>();
                         var savedResult = history.FirstOrDefault(result => result.Status is "completed" or "fallback");
-                        if (current?.Id == restoredId && savedResult is not null) AgentView.ShowStoredResult(savedResult);
+                        if (current?.Id == restoredId && savedResult is not null)
+                        {
+                            AgentView.ShowStoredResult(savedResult);
+                            toolbar?.ShowStoredResult(savedResult);
+                        }
                         if (update.Generation != generation) return;
                     }
                 }
@@ -228,7 +232,7 @@ public partial class MainWindow : Window
         Status.Text = message; StateDot.Fill = Brushes.IndianRed;
         observing = false; ObserveButton.Content = "开始观察";
         UpdateToolbar();
-        if (!closing && !selectingRegion && !IsVisible) Show();
+        if (!closing && !selectingRegion && !IsVisible && toolbar is null) Show();
     }
     private async void LanguageSelected(object sender, SelectionChangedEventArgs e)
     {
@@ -279,7 +283,8 @@ public partial class MainWindow : Window
             toolbar.ToggleObservationRequested += async () => await ToggleObservationAsync();
             toolbar.ReselectRequested += async () => await SelectObservationRegionAsync();
             toolbar.CloseLensRequested += async () => await CloseObservationAsync();
-            toolbar.PromptRequested += async (task, prompt) => await OpenToolbarPromptAsync(task, prompt);
+            toolbar.SettingsRequested += OpenSidebarSettings;
+            toolbar.GenerateAsync = GenerateSidebarAsync;
             toolbar.Follow(rect); toolbar.Show(); UpdateToolbar();
             return true;
         }
@@ -367,6 +372,7 @@ public partial class MainWindow : Window
         if (closingObservation) return;
         closingObservation = true;
         resumeAfterMove = false; rectTimer.Stop();
+        toolbar?.CancelGeneration();
         lensMoving = false;
         try
         {
@@ -378,18 +384,42 @@ public partial class MainWindow : Window
         }
         finally { closingObservation = false; }
     }
-    private void UpdateToolbar() => toolbar?.UpdateState(observing, Status.Text,
-        current?.Blocks.Count ?? 0, current?.Blocks.Sum(b => b.Text.Length) ?? 0, current?.Blocks.Count > 0);
+    private void UpdateToolbar()
+    {
+        toolbar?.SetSession(current?.Id);
+        toolbar?.UpdateState(observing, Status.Text, current?.Blocks.Count ?? 0,
+            current?.Blocks.Sum(b => b.Text.Length) ?? 0, current?.Blocks.Count > 0);
+    }
     private void OpenRecords()
     {
         Views.SelectedIndex = 1;
         Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate();
     }
-    private async Task OpenToolbarPromptAsync(string taskType, string prompt)
+    private void OpenSidebarSettings()
     {
         Views.SelectedItem = AgentTab;
+        var settings = (Expander)AgentView.FindName("SettingsExpander");
+        settings.IsExpanded = true;
         Show(); if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate();
-        await AgentView.PrepareFromToolbarAsync(taskType, prompt);
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => settings.BringIntoView());
+    }
+    private async Task<AgentResult> GenerateSidebarAsync(string taskType, string prompt, CancellationToken cancellation)
+    {
+        if (current is not { Blocks.Count: > 0 } session)
+            throw new InvalidOperationException("请先观察并记录一些文字，再发送任务。");
+        if (AgentView.HasUnsavedSettings)
+            throw new InvalidOperationException("引擎设置尚未保存。请点击侧边栏的设置入口保存后再发送。");
+        var target = toolbar ?? throw new InvalidOperationException("侧边栏已关闭。");
+        var settings = (await worker.RequestAsync("agent-settings-get", new { }, cancellation: cancellation)).Read<AgentSettings>();
+        var provider = settings.Providers.Single(p => p.Id == settings.SelectedProviderId);
+        var request = new AgentTaskRequest(session.Id, taskType, prompt, settings.ContextCharacterBudget, provider.TimeoutSeconds);
+        var preview = (await worker.RequestAsync("agent-preview", request, cancellation: cancellation)).Read<AgentContextPreview>();
+        cancellation.ThrowIfCancellationRequested();
+        if (current?.Id != session.Id || toolbar != target)
+            throw new OperationCanceledException(cancellation);
+        target.SetPreview(preview);
+        using var registration = cancellation.Register(() => _ = CancelAgentAsync(preview.PreviewId));
+        return (await worker.RequestAsync("agent-run", new { previewId = preview.PreviewId }, TimeSpan.FromMinutes(4), cancellation)).Read<AgentResult>();
     }
     private async void DeleteSession(object sender, RoutedEventArgs e)
     {

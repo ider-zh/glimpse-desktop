@@ -1,7 +1,7 @@
 <Window x:Class="Glimpse.UI.DockedToolbarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Glimpse 观察工具栏" Width="320" Height="490" MinWidth="0" MinHeight="0"
+        Title="Glimpse 观察工具栏" Width="360" Height="760" MinWidth="0" MinHeight="0"
         WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False"
         FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="13" Foreground="#203044"
@@ -25,10 +25,10 @@
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-        <RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
       </Grid.RowDefinitions>
       <DockPanel>
+        <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="设置" Click="OpenSettings" Padding="7,3" MinHeight="25" FontSize="11" Margin="9,0,0,0" ToolTip="配置引擎、模型和登录"/>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
           <Ellipse x:Name="StateDot" Width="7" Height="7" Fill="#8492A6" Margin="0,0,6,0"/>
           <TextBlock x:Name="StateLabel" Text="已停止" FontSize="11" Foreground="#617387"/>
@@ -48,23 +48,57 @@
         <Button x:Name="CloseLensButton" Grid.Row="2" Grid.Column="2" Content="关闭观察框" Click="CloseLens" Foreground="#8F4C40" ToolTip="立即停止观察并关闭观察框；已记录内容保留"/>
       </Grid>
       <Border Grid.Row="3" Height="1" Background="#DCE5EA" Margin="0,14,0,12"/>
-      <DockPanel Grid.Row="4" Margin="0,0,0,8">
-        <TextBlock Text="阅读助手" FontWeight="SemiBold" VerticalAlignment="Center"/>
-        <ComboBox x:Name="PromptTask" HorizontalAlignment="Right" MinWidth="132" Padding="6,4" SelectedIndex="2" SelectionChanged="TaskChanged" AutomationProperties.Name="助手任务">
-          <ComboBoxItem Content="帮我评论" Tag="comment"/>
-          <ComboBoxItem Content="帮我回复" Tag="reply"/>
-          <ComboBoxItem Content="总结" Tag="summary"/>
-          <ComboBoxItem Content="给我建议" Tag="analysis"/>
-          <ComboBoxItem Content="自定义提问" Tag="custom"/>
-        </ComboBox>
-      </DockPanel>
-      <TextBlock x:Name="PromptLabel" Grid.Row="5" Text="补充要求（可选）" FontSize="12" Foreground="#617387" Margin="0,0,0,5"/>
-      <TextBox x:Name="PromptInput" Grid.Row="6" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Padding="8" MaxLength="4000" BorderBrush="#D8E1E8" Background="White" MinHeight="52" KeyDown="PromptKeyDown" TextChanged="PromptEdited" AutomationProperties.Name="给阅读助手的补充要求"/>
-      <StackPanel Grid.Row="7" Margin="0,7,0,8">
-        <TextBlock x:Name="PromptError" Foreground="#9B6709" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" AutomationProperties.LiveSetting="Assertive"/>
-        <TextBlock x:Name="PromptHint" Text="先记录一些文字，再预览上下文。" Foreground="#617387" FontSize="11" TextWrapping="Wrap"/>
-      </StackPanel>
-      <Button x:Name="PreviewButton" Grid.Row="8" Content="预览并生成…" Click="OpenPromptPreview" Background="#19766F" Foreground="White" IsEnabled="False" ToolTip="打开阅读助手并预览上下文；检查后由你点击生成。Ctrl+Enter"/>
+      <Grid Grid.Row="4" Margin="0,0,0,9">
+        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock x:Name="AgentStatus" Text="先记录一些文字，再点击任务或发送问题。" Foreground="#617387" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
+        <Button x:Name="CancelButton" Grid.Column="1" Content="取消生成" Click="CancelRequest" Margin="7,0,0,0" Visibility="Collapsed"/>
+      </Grid>
+      <ScrollViewer x:Name="AgentScroll" Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,3,0">
+        <StackPanel>
+          <TextBlock Text="阅读助手" FontWeight="SemiBold" Margin="0,0,0,4"/>
+          <TextBlock Text="点击任务直接生成，可先填写补充要求。" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,9"/>
+          <UniformGrid Columns="2" Rows="2" Margin="0,0,-7,7">
+            <Button x:Name="CommentButton" Content="帮我评论" Tag="comment" Click="QuickGenerate" Margin="0,0,7,7" ToolTip="根据当前阅读内容生成评论"/>
+            <Button x:Name="ReplyButton" Content="帮我回复" Tag="reply" Click="QuickGenerate" Margin="0,0,7,7" ToolTip="根据当前阅读内容生成回复"/>
+            <Button x:Name="SummaryButton" Content="总结" Tag="summary" Click="QuickGenerate" Margin="0,0,7,7" ToolTip="总结当前阅读内容"/>
+            <Button x:Name="AdviceButton" Content="给我建议" Tag="analysis" Click="QuickGenerate" Margin="0,0,7,7" ToolTip="分析当前阅读内容并给出建议"/>
+          </UniformGrid>
+          <TextBlock Text="提问或补充要求" FontSize="12" Foreground="#617387" Margin="0,0,0,5"/>
+          <TextBox x:Name="PromptInput" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Padding="8" MaxLength="4000" BorderBrush="#D8E1E8" Background="White" Height="76" KeyDown="PromptKeyDown" TextChanged="PromptEdited" AutomationProperties.Name="给阅读助手的问题或补充要求"/>
+          <Button x:Name="SendButton" Content="发送问题" Click="SendPrompt" Background="#19766F" Foreground="White" ToolTip="发送自定义问题。Ctrl+Enter" Margin="0,8,0,12"/>
+          <TextBlock x:Name="PreviousResultNotice" Text="上次结果" FontWeight="SemiBold" Foreground="#617387" FontSize="12" Margin="0,0,0,5" Visibility="Collapsed"/>
+          <TextBlock x:Name="ResultSummary" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,5"/>
+          <TextBlock x:Name="CopyStatus" Foreground="#19766F" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,5" Visibility="Collapsed" AutomationProperties.LiveSetting="Polite"/>
+          <TextBlock x:Name="ResultWarnings" Foreground="#9B6709" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,7"/>
+          <Expander x:Name="PreviewExpander" Header="本次发送内容" Visibility="Collapsed" IsExpanded="False" Margin="0,0,0,9">
+            <StackPanel Margin="0,7,0,0">
+              <TextBlock x:Name="PreviewSummary" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+              <TextBox x:Name="PreviewText" IsReadOnly="True" IsReadOnlyCaretVisible="True" Height="180" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" FontSize="11"/>
+            </StackPanel>
+          </Expander>
+          <ItemsControl x:Name="ResultCards">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <Border BorderBrush="#DCE5EA" BorderThickness="1" CornerRadius="7" Padding="10" Margin="0,0,0,9" Background="White">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding Tone}" FontSize="11" Foreground="#617387" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                    <TextBox Text="{Binding Text, Mode=OneWay}" IsReadOnly="True" IsReadOnlyCaretVisible="True" TextWrapping="Wrap" FontSize="14" MaxHeight="280" VerticalScrollBarVisibility="Auto" BorderThickness="0" Background="Transparent" Padding="0,7,0,8"/>
+                    <Button Content="复制文字" Tag="{Binding Text}" Click="CopyCard" HorizontalAlignment="Left" MinHeight="30" Padding="9,5"/>
+                  </StackPanel>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <Border x:Name="FallbackPanel" Visibility="Collapsed" BorderBrush="#E0C98D" BorderThickness="1" CornerRadius="7" Padding="10" Background="#FFFBF0" Margin="0,0,0,9">
+            <StackPanel>
+              <TextBlock Text="原始回答 · 格式未通过校验" Foreground="#9B6709" FontWeight="SemiBold" TextWrapping="Wrap"/>
+              <TextBox x:Name="FallbackText" IsReadOnly="True" IsReadOnlyCaretVisible="True" FontSize="14" MaxHeight="300" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Padding="0,8"/>
+              <Button Content="复制原始文字" Click="CopyFallback" HorizontalAlignment="Left" MinHeight="30" Padding="9,5"/>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </ScrollViewer>
     </Grid>
   </Border>
 </Window>
