@@ -23,14 +23,15 @@ internal static class DockedToolbarProbe
         var rect = new PixelRect(120, 160, 620, 400);
         var lens = new LensWindow(rect);
         var toolbar = new DockedToolbarWindow(rect);
+        var observation = new ObservationToolbarWindow();
         int records = 0, toggles = 0, reselects = 0, closes = 0;
         bool negativeMonitor = false;
         var prompts = new List<(string Task, string Prompt)>();
         Guid sessionId = Guid.NewGuid();
-        toolbar.RecordsRequested += () => records++;
-        toolbar.ToggleObservationRequested += () => toggles++;
-        toolbar.ReselectRequested += () => reselects++;
-        toolbar.CloseLensRequested += () => closes++;
+        observation.RecordsRequested += () => records++;
+        observation.ToggleObservationRequested += () => toggles++;
+        observation.ReselectRequested += () => reselects++;
+        observation.CloseLensRequested += () => closes++;
         toolbar.GenerateAsync = (task, prompt, _) =>
         {
             prompts.Add((task, prompt));
@@ -39,12 +40,14 @@ internal static class DockedToolbarProbe
         };
         try
         {
-            lens.Show(); toolbar.Show();
+            lens.Show(); toolbar.Show(); observation.Show(); observation.Follow(rect);
             toolbar.SetSession(sessionId);
             toolbar.UpdateState(true, "合成测试 · 正在记录", 4, 144, true);
             toolbar.Follow(rect);
             await Task.Delay(250);
             toolbar.UpdateLayout();
+            Check(toolbar.FindName("PostButtons") is not null, "Agent sidebar exposes independent post selection");
+            Check(toolbar.FindName("ObserveButton") is null && toolbar.FindName("CloseLensButton") is null, "Capture controls are absent from Agent sidebar");
             nint handle = new WindowInteropHelper(toolbar).Handle;
             Check(Native.GetDpiForWindow(handle) == 96, "This physical placement check requires current 96 DPI");
             Check(Native.GetWindowDisplayAffinity(handle, out uint affinity) && affinity == 0x11, "Toolbar is excluded from capture");
@@ -52,12 +55,16 @@ internal static class DockedToolbarProbe
             var first = Bounds(toolbar);
             Check(!Intersects(first, rect), "Toolbar remains outside initial capture region");
             Check(first.X >= rect.X + rect.Width, "Toolbar docks on right when space permits");
-            var observe = Find<Button>(toolbar, "ObserveButton");
+            Check(!Intersects(Bounds(observation), rect) && !Intersects(Bounds(observation), first), "Observation toolbar is separate from capture and Agent sidebar");
+            Check(Native.GetWindowDisplayAffinity(new WindowInteropHelper(observation).Handle, out uint observationAffinity) && observationAffinity == 0x11, "Observation toolbar is excluded from capture");
+            var observe = Find<Button>(observation, "ObserveButton");
+            Check(!string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(observe)) && observe.ToolTip is not null,
+                "Icon capture controls have accessible names and hover hints");
             var hitPoint = observe.PointToScreen(new(observe.ActualWidth / 2, observe.ActualHeight / 2));
-            Check(Native.GetAncestor(Native.WindowFromPoint(new((int)hitPoint.X, (int)hitPoint.Y)), 2) == handle,
+            Check(Native.GetAncestor(Native.WindowFromPoint(new((int)hitPoint.X, (int)hitPoint.Y)), 2) == new WindowInteropHelper(observation).Handle,
                 "Toolbar button receives native hit testing");
 
-            Click(toolbar, "RecordsButton"); Click(toolbar, "ObserveButton"); Click(toolbar, "ReselectButton");
+            Click(observation, "RecordsButton"); Click(observation, "ObserveButton"); Click(observation, "ReselectButton");
             Check(records == 1 && toggles == 1 && reselects == 1, "Record/toggle/reselect events forwarded once");
             var prompt = Find<TextBox>(toolbar, "PromptInput");
             foreach (var (button, task) in new[] { ("CommentButton", "comment"), ("ReplyButton", "reply"),
@@ -70,10 +77,10 @@ internal static class DockedToolbarProbe
                 Check(prompts.Count == before + 1 && prompts[^1] == (task, prompt.Text), "Task and custom prompt forwarded exactly");
             }
             toolbar.UpdateState(false, "合成测试 · 已停止记录", 4, 144, true);
-            Check(Find<Button>(toolbar, "ObserveButton").IsEnabled, "Stopped observation can be restarted");
+            Check(Find<Button>(observation, "ObserveButton").IsEnabled, "Stopped observation can be restarted");
 
             var moved = rect with { X = 1440, Y = 280, Width = 340 };
-            lens.Restore(moved); toolbar.Follow(moved);
+            lens.Restore(moved); toolbar.Follow(moved); observation.Follow(moved);
             await Task.Delay(150);
             var second = Bounds(toolbar);
             Check(second != first && !Intersects(second, moved), "Toolbar follows moved lens without entering capture");
@@ -89,16 +96,17 @@ internal static class DockedToolbarProbe
                 Check(positioned.X < 0 && !Intersects(positioned, negative), "Native toolbar follows a negative-coordinate monitor");
             }
             // Return to a predictable primary-monitor layout for the standalone image.
-            lens.Restore(rect); toolbar.Follow(rect); toolbar.UpdateLayout();
+            lens.Restore(rect); toolbar.Follow(rect); observation.Follow(rect); toolbar.UpdateLayout();
             SaveVisual(toolbar, imagePath);
-            Click(toolbar, "CloseLensButton");
+            SaveVisual(observation, imagePath + ".observation.png");
+            Click(observation, "CloseLensButton");
             Check(closes == 1, "Close-lens action forwarded once");
-            toolbar.CloseForOwner();
+            observation.CloseForOwner(); toolbar.CloseForOwner();
             Check(closes == 1, "Owner cleanup does not repeat close-lens action");
         }
         finally
         {
-            toolbar.CloseForOwner(); lens.Close();
+            observation.CloseForOwner(); toolbar.CloseForOwner(); lens.Close();
         }
         await WorkflowChecks();
         Console.WriteLine($"DOCKED TOOLBAR PASS: native 96-DPI right/left following, excluded/clickable window, preset/custom prompt and record controls; negative-monitor={negativeMonitor}; startup selection/auto-observe, pause/restart/close and canceled selection; only synthetic fixture OCR, no model calls.");
@@ -136,7 +144,20 @@ internal static class DockedToolbarProbe
             Check(!Intersects(Bounds(active.DockedToolbar!), capture), "Startup toolbar stays outside synthetic capture");
             await Until(() => !Find<TextBlock>(active.DockedToolbar!, "Counts").Text.StartsWith("已记录 0 ", StringComparison.Ordinal));
             Check(Find<Button>(active.DockedToolbar!, "SummaryButton").IsEnabled, "Synthetic OCR makes one-click sidebar tasks available");
-            Click(active.DockedToolbar!, "RecordsButton");
+            Check(active.ObservationToolbar is { IsVisible: true }, "Separate observation toolbar is visible");
+            await active.AddIgnoreRegionAsync(new PixelRect(400, 220, 120, 100));
+            await Until(() => Find<Button>(active.ObservationToolbar!, "ClearIgnoreRegionsButton").IsEnabled);
+            Check(active.IsObserving, "Adding ignored video area preserves observing state");
+            Click(active.ObservationToolbar!, "ClearIgnoreRegionsButton");
+            await Until(() => !Find<Button>(active.ObservationToolbar!, "ClearIgnoreRegionsButton").IsEnabled);
+            Click(active.ObservationToolbar!, "AnalyzeDynamicRegionsButton");
+            Check(!Find<Button>(active.ObservationToolbar!, "AnalyzeDynamicRegionsButton").IsEnabled,
+                "Dynamic-area analysis shows a bounded busy state");
+            Check(Find<Button>(active.ObservationToolbar!, "CloseLensButton").IsEnabled,
+                "Close remains available while dynamic-area analysis runs");
+            await Until(() => Find<Button>(active.ObservationToolbar!, "AnalyzeDynamicRegionsButton").IsEnabled);
+            Check(active.IsObserving, "Static scene analysis restores active observation");
+            Click(active.ObservationToolbar!, "RecordsButton");
             await Until(() => active.IsVisible && Find<TabControl>(active, "Views").SelectedIndex == 1);
             Check(selections == 1 && active.IsObserving, "Opening records preserves observation without repeating startup selection");
             await active.ToggleObservationAsync();
@@ -145,6 +166,7 @@ internal static class DockedToolbarProbe
             await Until(() => active.IsObserving);
             await active.CloseObservationAsync();
             await Until(() => !active.IsObserving && active.DockedToolbar is null);
+            Check(active.ObservationToolbar is null, "Closing capture removes both attached surfaces");
             Check(selections == 1 && active.IsVisible, "Closing the lens shows records without another selection");
             await CloseWindow(active); window = null;
 
@@ -195,6 +217,12 @@ internal static class DockedToolbarProbe
         Check(Contained(negative, negativeArea) && negative.X < 0 && !Intersects(negative, negativeCapture), "Negative physical coordinates preserved");
         foreach (var capture in new[] { new PixelRect(-20, -30, 90, 100), new PixelRect(1880, 1020, 80, 100), primary })
             Check(Contained(ToolbarPlacement.Place(capture, width, height, primary), primary), "Edge/full-screen fallback remains on display");
+        foreach (var capture in new[] { rightCapture, leftCapture, new PixelRect(120, 25, 620, 400), primary })
+        {
+            var strip = ToolbarPlacement.PlaceObservation(capture, 356, 91, primary);
+            Check(Contained(strip, primary), "Compact observation strip remains reachable");
+            if (capture != primary) Check(!Intersects(strip, capture), "Compact observation strip prefers above/below capture");
+        }
     }
     private static T Find<T>(FrameworkElement window, string name) where T : FrameworkElement =>
         window.FindName(name) as T ?? throw new InvalidOperationException("Toolbar control missing: " + name);

@@ -14,12 +14,14 @@ public sealed class AgentRunner(ILLMProvider provider, IContextBuilder? contextB
         CancellationToken cancellation = default)
     {
         if (timeoutSeconds is < 1 or > 180) throw new ArgumentOutOfRangeException(nameof(timeoutSeconds));
+        if (preview.Children is { Count: > 0 })
+            throw new InvalidOperationException("A local dispatch envelope must never be submitted as a model prompt.");
         var timer = Stopwatch.StartNew();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         Task<ProviderResponse>? pending = null;
         AgentResult Result(string status, List<AgentCard>? cards = null, string? fallback = null, string? error = null) =>
             new(preview.PreviewId, preview.SessionId, preview.DocumentRevision, provider.Id, preview.TaskType, preview.Schema,
-                status, cards ?? [], fallback, error, timer.ElapsedMilliseconds, preview.Warnings.ToList());
+                status, cards ?? [], fallback, error, timer.ElapsedMilliseconds, preview.Warnings.ToList(), preview.PostId, preview.PostTitle);
         try
         {
             cancellation.ThrowIfCancellationRequested();

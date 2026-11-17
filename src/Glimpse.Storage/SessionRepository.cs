@@ -19,7 +19,7 @@ public sealed class SessionRepository : ISessionRepository
         using var version = db.CreateCommand();
         version.CommandText = "PRAGMA user_version";
         int existing = Convert.ToInt32(version.ExecuteScalar());
-        if (existing > 2) throw new InvalidDataException("Database was created by a newer Glimpse version.");
+        if (existing > 3) throw new InvalidDataException("Database was created by a newer Glimpse version.");
         using var schema = db.CreateCommand();
         schema.CommandText = """
             PRAGMA journal_mode=WAL;
@@ -51,9 +51,17 @@ public sealed class SessionRepository : ISessionRepository
             CREATE INDEX IF NOT EXISTS idx_agent_session_time ON agent_turns(session_id,created_at_ms DESC);
             CREATE INDEX IF NOT EXISTS idx_blocks_session_order ON content_blocks(session_id, order_key);
             CREATE INDEX IF NOT EXISTS idx_snapshots_session_seq ON ocr_snapshots(session_id, sequence_no DESC);
-            PRAGMA user_version=2;
             """;
         schema.ExecuteNonQuery();
+        if (existing < 3)
+        {
+            using var columns = db.CreateCommand();
+            columns.CommandText = "SELECT COUNT(*) FROM pragma_table_info('sessions') WHERE name='ignore_regions_json'";
+            bool hasMaskColumn = Convert.ToInt32(columns.ExecuteScalar()) != 0;
+            using var migration = db.CreateCommand();
+            migration.CommandText = (hasMaskColumn ? "" : "ALTER TABLE sessions ADD COLUMN ignore_regions_json TEXT NOT NULL DEFAULT '[]'; ") + "PRAGMA user_version=3;";
+            migration.ExecuteNonQuery();
+        }
     }
     private SqliteConnection Open()
     {
@@ -87,14 +95,14 @@ public sealed class SessionRepository : ISessionRepository
         {
             using var db = Open();
             using var cmd = db.CreateCommand();
-            cmd.CommandText = "SELECT title,status,created_at_ms,updated_at_ms,capture_rect_json,document_revision FROM sessions WHERE id=$id";
+            cmd.CommandText = "SELECT title,status,created_at_ms,updated_at_ms,capture_rect_json,document_revision,ignore_regions_json FROM sessions WHERE id=$id";
             cmd.Parameters.AddWithValue("$id", id.ToString());
             SessionData session;
             using (var reader = cmd.ExecuteReader())
             {
                 if (!reader.Read()) return null;
                 session = new(id, reader.GetString(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3),
-                    Read<PixelRect>(reader.GetString(4)), reader.GetInt32(5), [], [], []);
+                    Read<PixelRect>(reader.GetString(4)), reader.GetInt32(5), [], [], [], Read<List<PixelRect>>(reader.GetString(6)));
             }
             cmd.CommandText = "SELECT id,content,normalized_text,status,provenance_json FROM content_blocks WHERE session_id=$id ORDER BY order_key";
             using (var reader = cmd.ExecuteReader())
@@ -127,13 +135,13 @@ public sealed class SessionRepository : ISessionRepository
                 cmd.ExecuteNonQuery();
             }
             Run("""
-                INSERT INTO sessions(id,title,status,created_at_ms,updated_at_ms,capture_rect_json,document_revision)
-                VALUES($id,$title,$status,$created,$updated,$rect,$revision)
+                INSERT INTO sessions(id,title,status,created_at_ms,updated_at_ms,capture_rect_json,document_revision,ignore_regions_json)
+                VALUES($id,$title,$status,$created,$updated,$rect,$revision,$ignored)
                 ON CONFLICT(id) DO UPDATE SET title=$title,status=$status,updated_at_ms=$updated,
-                capture_rect_json=$rect,document_revision=$revision
+                capture_rect_json=$rect,document_revision=$revision,ignore_regions_json=$ignored
                 """, ("$id", session.Id.ToString()), ("$title", session.Title), ("$status", session.Status),
                 ("$created", session.CreatedAtMs), ("$updated", session.UpdatedAtMs),
-                ("$rect", Json(session.Rect)), ("$revision", session.Revision));
+                ("$rect", Json(session.Rect)), ("$revision", session.Revision), ("$ignored", Json(session.IgnoreRegions)));
             // Rebalance order keys atomically; block UUIDs and original evidence never change.
             for (int i = 0; i < session.Blocks.Count; i++)
             {

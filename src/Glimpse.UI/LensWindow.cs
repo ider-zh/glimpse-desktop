@@ -10,6 +10,7 @@ public sealed class LensWindow : Window
 {
     private bool ready;
     private readonly PixelRect initial;
+    private IReadOnlyList<PixelRect> ignoreRegions = [];
     public event Action<PixelRect>? RectangleChanged;
     public event Action? Moving;
     public event Action? MoveCompleted;
@@ -57,6 +58,11 @@ public sealed class LensWindow : Window
         Native.Position(this, new(rect.X - Edge, rect.Y - Header, rect.Width + 2 * Edge, rect.Height + Header + Edge));
         UpdateRegion();
     }
+    public void SetIgnoreRegions(IReadOnlyList<PixelRect>? regions)
+    {
+        ignoreRegions = regions ?? [];
+        if (ready) UpdateRegion();
+    }
     private void Changed()
     {
         if (!ready) return;
@@ -70,6 +76,17 @@ public sealed class LensWindow : Window
         nint inside = Native.CreateRectRgn(Edge, Header, b.Width - Edge, b.Height - Edge);
         Native.CombineRgn(outside, outside, inside, 4); // RGN_DIFF: real hole, across process boundaries.
         Native.DeleteObject(inside);
+        // Narrow visible outlines mark excluded areas while the rest of each
+        // region remains a real native hole. Screen capture excludes this HWND.
+        foreach (var mask in ignoreRegions)
+        {
+            int x = Edge + mask.X, y = Header + mask.Y;
+            nint outline = Native.CreateRectRgn(x, y, x + mask.Width, y + mask.Height);
+            nint hole = Native.CreateRectRgn(x + 2, y + 2, x + mask.Width - 2, y + mask.Height - 2);
+            Native.CombineRgn(outline, outline, hole, 4);
+            Native.CombineRgn(outside, outside, outline, 2); // RGN_OR
+            Native.DeleteObject(hole); Native.DeleteObject(outline);
+        }
         if (Native.SetWindowRgn(Native.Handle(this), outside, true) == 0)
         {
             Native.DeleteObject(outside);

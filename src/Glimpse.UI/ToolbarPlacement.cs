@@ -6,6 +6,19 @@ namespace Glimpse.UI;
 
 public static class ToolbarPlacement
 {
+    public static PixelRect PlaceObservation(PixelRect captureRect, int toolbarWidth, int toolbarHeight, PixelRect workArea, int gap = 8)
+    {
+        if (toolbarWidth <= 0 || toolbarHeight <= 0 || workArea.Width <= 0 || workArea.Height <= 0 || gap < 0)
+            throw new ArgumentOutOfRangeException(nameof(toolbarWidth));
+        int width = Math.Min(toolbarWidth, workArea.Width), height = Math.Min(toolbarHeight, workArea.Height);
+        long top = (long)captureRect.Y - LensWindow.Header;
+        long bottom = (long)captureRect.Y + captureRect.Height + LensWindow.Edge;
+        long workBottom = (long)workArea.Y + workArea.Height;
+        long y = top - gap - height >= workArea.Y ? top - gap - height :
+            bottom + gap + height <= workBottom ? bottom + gap : top;
+        return new((int)Math.Clamp((long)captureRect.X - LensWindow.Edge, workArea.X, (long)workArea.X + workArea.Width - width),
+            (int)Math.Clamp(y, workArea.Y, workBottom - height), width, height);
+    }
     // All values are physical pixels in the virtual desktop coordinate system.
     // The input is the hollow capture area, so include the actual lens frame.
     public static PixelRect Place(PixelRect captureRect, int toolbarWidth, int toolbarHeight,

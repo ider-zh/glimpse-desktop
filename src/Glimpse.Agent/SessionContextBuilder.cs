@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Text.Unicode;
 using Glimpse.Contracts;
+using Glimpse.Core;
 
 namespace Glimpse.Agent;
 
@@ -23,7 +24,26 @@ public sealed partial class SessionContextBuilder : IContextBuilder
         if (request.ContextCharacterBudget is < 1000 or > 24000 || request.Prompt.Length > 4000)
             throw new ArgumentException("Context budget must be 1000–24000 characters and prompt at most 4000 characters.", nameof(request));
 
+        ObservedPost? post = null;
+        var observer = new PostSegmenter();
+        var catalog = observer.Build(session);
+        if (request.PostId is null && catalog.Posts.Count > 1)
+            throw new InvalidOperationException("当前有多条内容，请在侧边栏选择帖子或启用全部分条处理。");
+        if ((request.PostId ?? catalog.Posts.FirstOrDefault()?.Id) is Guid postId)
+        {
+            post = catalog.Posts.SingleOrDefault(p => p.Id == postId)
+                ?? throw new InvalidOperationException("帖子已变化，请重新选择后生成。");
+            session = observer.Scope(session, postId);
+        }
+        else session = session with { Blocks = [], Snapshots = [] };
+
         var warnings = new List<string>();
+        warnings.AddRange(catalog.Warnings);
+        if (post is not null)
+        {
+            warnings.Add("This isolated task includes only the selected post; other posts and interface controls are excluded.");
+            if (post.Uncertain) warnings.Add("Post boundaries are inferred from OCR layout and may be incomplete; do not invent relationships.");
+        }
         int unresolvedGaps = session.Gaps.Count(g => !g.Resolved);
         if (unresolvedGaps > 0) warnings.Add($"Session has {unresolvedGaps} possible reading gaps; context may be incomplete.");
         var prompt = filter.Redact(request.Prompt);
@@ -42,7 +62,7 @@ public sealed partial class SessionContextBuilder : IContextBuilder
             string text = filtered.Text;
             bool truncated = text.Length > perBlock;
             if (truncated) text = text[..perBlock];
-            var outbound = new ContextBlock(block.Source.FirstSequence, block.Status != "confirmed", text);
+            var outbound = new ContextBlock(block.Id, block.Source.FirstSequence, block.Status != "confirmed", text);
             int cost = JsonSerializer.Serialize(outbound, PayloadJson).Length + 1;
             if (cost > remaining)
             {
@@ -83,11 +103,13 @@ public sealed partial class SessionContextBuilder : IContextBuilder
             task,
             instruction = TaskInstruction(task),
             userPrompt = prompt.Text,
+            postId = post?.Id,
             warnings,
             untrustedScreenContext = selected.Select(s => s.Block).ToList()
         }, PayloadJson);
         return new(Guid.NewGuid(), session.Id, session.Revision, task, schema, jsonSchema, system, user,
-            selected.Select(s => s.Id).ToList(), warnings, redactions, (system.Length + user.Length + 2) / 3);
+            selected.Select(s => s.Id).ToList(), warnings, redactions, (system.Length + user.Length + 2) / 3,
+            post?.Id, post is null ? null : filter.Redact(post.Label).Text);
     }
 
     private static string TaskInstruction(string task) => task switch
@@ -153,5 +175,5 @@ public sealed partial class SessionContextBuilder : IContextBuilder
             ranges.Enqueue((start, middle)); ranges.Enqueue((middle, end));
         }
     }
-    private record ContextBlock(int FirstSequence, bool Uncertain, string Text);
+    private record ContextBlock(Guid BlockId, int FirstSequence, bool Uncertain, string Text);
 }

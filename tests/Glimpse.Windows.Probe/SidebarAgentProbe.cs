@@ -112,7 +112,8 @@ internal static class SidebarAgentProbe
             Check(InsideWindow(sidebar, Find<Button>(sidebar, "CancelButton")) && InsideWindow(sidebar, Find<TextBlock>(sidebar, "AgentStatus")),
                 "Cancel and generation status remain reachable after result scrolling");
             Find<Button>(sidebar, "SummaryButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            Check(pendingCalls == 1 && Find<Button>(sidebar, "ObserveButton").IsEnabled, "Busy sidebar rejects duplicate generation and preserves observation controls");
+            Check(pendingCalls == 1 && sidebar.FindName("ObserveButton") is null && Find<Button>(sidebar, "CancelButton").IsEnabled,
+                "Busy sidebar rejects duplicate generation and keeps cancellation in the Agent surface");
             Click(sidebar, "CancelButton");
             Check(canceled.IsCancellationRequested, "Cancel reaches the active token");
             late.SetResult(Result(sessionId, "summary", "LATE_CANCELED_RESULT"));

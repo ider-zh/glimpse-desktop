@@ -8,6 +8,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
     <ProjectReference Include="../Glimpse.Contracts/Glimpse.Contracts.csproj" />
+    <ProjectReference Include="../Glimpse.Core/Glimpse.Core.csproj" />
     <ProjectReference Include="../Glimpse.Worker/Glimpse.Worker.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>

@@ -33,15 +33,18 @@ public partial class DockedToolbarWindow
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => SetPreview(preview)); return; }
         if (closed || ownerClosing || sessionId != preview.SessionId || !generating || generationCancellation?.IsCancellationRequested != false) return;
-        PreviewSummary.Text = $"修订 {preview.DocumentRevision} · {preview.SelectedBlockIds.Count} 块 · 约 {preview.EstimatedTokens} tokens · 过滤 {preview.RedactionCount} 处敏感模式";
+        PreviewSummary.Text = $"修订 {preview.DocumentRevision} · {preview.SelectedBlockIds.Count} 块 · 约 {preview.EstimatedTokens} tokens · 过滤 {preview.RedactionCount} 处敏感模式" +
+            (preview.Children is { Count: > 0 } children ? $" · {children.Count} 条独立任务" : "");
         PreviewText.Text = preview.SystemPrompt + "\n\n" + preview.UserPrompt;
         PreviewExpander.Visibility = Visibility.Visible;
+        if (preview.Children is { Count: > 0 } jobs)
+            SetAgentStatus($"正在分条生成{TaskLabel(currentTask)} · {jobs.Count} 条内容，最多并行两路…");
     }
 
     public void ShowStoredResult(AgentResult result)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => ShowStoredResult(result)); return; }
-        if (closed || ownerClosing || generating || resultShown || result.SessionId != sessionId || result.Status is not ("completed" or "fallback")) return;
+        if (closed || ownerClosing || generating || resultShown || result.SessionId != sessionId || result.Status is not ("completed" or "fallback" or "partial")) return;
         RenderAgentResult(result, restored: true);
     }
 
@@ -111,7 +114,7 @@ public partial class DockedToolbarWindow
     private void RenderAgentResult(AgentResult result, bool restored = false)
     {
         string task = TaskLabel(result.TaskType);
-        if (result.Status is not ("completed" or "fallback"))
+        if (result.Status is not ("completed" or "fallback" or "partial"))
         {
             MarkPreviousAnswer();
             SetAgentStatus(result.Status switch
@@ -128,14 +131,16 @@ public partial class DockedToolbarWindow
         ResultCards.ItemsSource = result.Cards;
         string provider = result.ProviderId switch { "codebuddy-cli" => "CodeBuddy CLI", "deepseek" => "DeepSeek", "xiaomi-mimo" => "Xiaomi MiMo", _ => result.ProviderId };
         ResultSummary.Text = $"{task} · {provider} · 修订 {result.DocumentRevision} · {result.ElapsedMs / 1000d:0.0} 秒" +
-            (restored ? " · 已保存的结果" : "");
-        ResultWarnings.Text = string.Join("\n", result.Warnings.Distinct());
+            (result.PostResults is { Count: > 0 } posts ? $" · {posts.Count(p => p.Status == "completed")}/{posts.Count} 条完成" :
+                result.PostTitle is not null ? " · " + result.PostTitle : "") + (restored ? " · 已保存的结果" : "");
+        ResultWarnings.Text = string.Join("\n", result.Warnings.Select(AgentWarningText.Display).Distinct());
         if (result.Status == "fallback" && result.FallbackText is not null)
         { FallbackText.Text = result.FallbackText; FallbackPanel.Visibility = Visibility.Visible; }
         PreviousResultNotice.Visibility = restored ? Visibility.Visible : Visibility.Collapsed;
         SetAgentStatus(restored ? $"已恢复上次{task}，可直接复制。" : result.Status switch
         {
             "completed" => $"{task}已生成，可复制结果。",
+            "partial" => "部分帖子已生成；其他帖子状态见下方，可复制已完成结果。",
             _ => $"本次{task}的格式未通过校验，请检查原始文字。"
         }, result.Status == "fallback");
         if (!restored) RevealNewAnswer(result);
@@ -155,6 +160,7 @@ public partial class DockedToolbarWindow
     private void UpdateAgentControls()
     {
         if (SendButton is null) return;
+        UpdatePostControls();
         bool canGenerate = !closed && !ownerClosing && !userClosing && !generating && hasText && sessionId is not null && GenerateAsync is not null;
         CommentButton.IsEnabled = ReplyButton.IsEnabled = SummaryButton.IsEnabled = AdviceButton.IsEnabled = SendButton.IsEnabled = canGenerate;
         PromptInput.IsEnabled = !generating;

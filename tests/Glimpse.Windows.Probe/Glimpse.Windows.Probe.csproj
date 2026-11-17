@@ -4,6 +4,7 @@
     <ApplicationManifest>../../src/Glimpse.Worker/app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <None Update="Fixtures/*.png" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="../../src/Glimpse.UI/Glimpse.UI.csproj" />
     <ProjectReference Include="../../src/Glimpse.Worker/Glimpse.Worker.csproj" />
   </ItemGroup>

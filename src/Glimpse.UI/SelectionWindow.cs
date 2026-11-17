@@ -14,24 +14,24 @@ public sealed class SelectionWindow : Window
     private readonly Canvas canvas = new();
     private readonly Rectangle selection = new() { Stroke = Brushes.Turquoise, StrokeThickness = 2, Fill = Brushes.Transparent };
     public PixelRect? Selected { get; private set; }
-    public SelectionWindow()
+    public SelectionWindow(PixelRect? limit = null)
     {
-        Title = "选择观察区域"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
+        Title = limit is null ? "选择观察区域" : "选择忽略区域"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         AllowsTransparency = true; Background = new SolidColorBrush(Color.FromArgb(90, 0, 12, 24));
         Topmost = true; ShowInTaskbar = false; Cursor = Cursors.Cross;
         Content = canvas;
         canvas.Children.Add(new TextBlock
         {
-            Text = "拖动选择观察区域 · Esc 取消",
+            Text = limit is null ? "拖动选择观察区域 · Esc 取消" : "框选视频等动态区域 · Esc 取消",
             Foreground = Brushes.White,
-            FontSize = 24,
-            Margin = new Thickness(40)
+            FontSize = limit is null ? 24 : 14,
+            Margin = new Thickness(limit is null ? 40 : 12)
         });
         canvas.Children.Add(selection);
         SourceInitialized += (_, _) =>
         {
             Native.Exclude(this);
-            Native.Position(this, new(Native.GetSystemMetrics(76), Native.GetSystemMetrics(77),
+            Native.Position(this, limit ?? new(Native.GetSystemMetrics(76), Native.GetSystemMetrics(77),
                 Native.GetSystemMetrics(78), Native.GetSystemMetrics(79)));
         };
         KeyDown += (_, e) => { if (e.Key == Key.Escape) { DialogResult = false; } };
@@ -49,8 +49,16 @@ public sealed class SelectionWindow : Window
         {
             if (!selecting) return;
             ReleaseMouseCapture(); Native.GetCursorPos(out var end);
-            var rect = new PixelRect(Math.Min(start.X, end.X), Math.Min(start.Y, end.Y),
-                Math.Abs(start.X - end.X), Math.Abs(start.Y - end.Y));
+            int left = Math.Min(start.X, end.X), top = Math.Min(start.Y, end.Y);
+            int right = Math.Max(start.X, end.X), bottom = Math.Max(start.Y, end.Y);
+            if (limit is { } bounds)
+            {
+                left = Math.Clamp(left, bounds.X, bounds.X + bounds.Width);
+                right = Math.Clamp(right, bounds.X, bounds.X + bounds.Width);
+                top = Math.Clamp(top, bounds.Y, bounds.Y + bounds.Height);
+                bottom = Math.Clamp(bottom, bounds.Y, bounds.Y + bounds.Height);
+            }
+            var rect = new PixelRect(left, top, right - left, bottom - top);
             if (!rect.IsValid) { selecting = false; return; }
             Selected = rect; DialogResult = true;
         };
