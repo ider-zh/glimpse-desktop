@@ -70,7 +70,7 @@ internal static class Program
         }
         int exit = 1;
         Application app;
-        if (args.Contains("--ui-render") || args.Contains("--agent-ui") || args.Contains("--login-ui") || args.Contains("--live-agent-ui"))
+        if (args.Contains("--ui-render") || args.Contains("--agent-ui") || args.Contains("--login-ui") || args.Contains("--live-agent-ui") || args.Contains("--docked-toolbar"))
         {
             var uiApp = new Glimpse.UI.App { LaunchMainWindow = false, ShutdownMode = ShutdownMode.OnExplicitShutdown };
             uiApp.InitializeComponent(); app = uiApp;
@@ -80,7 +80,8 @@ internal static class Program
         {
             try
             {
-                if (args.Length == 3 && args[0] == "--live-agent-ui") await LiveAgentUiProbe.Run(args[1], args[2]);
+                if (args.Length == 2 && args[0] == "--docked-toolbar") await DockedToolbarProbe.Run(args[1]);
+                else if (args.Length == 3 && args[0] == "--live-agent-ui") await LiveAgentUiProbe.Run(args[1], args[2]);
                 else if (args.Length == 2 && args[0] == "--login-ui") await LoginUiProbe.Run(args[1]);
                 else if (args.Length == 2 && args[0] == "--agent-ui") await AgentUiProbe.Run(args[1]);
                 else if (args.Contains("--ocr-corpus")) await OcrCorpusProbe.Run();

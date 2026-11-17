@@ -275,13 +275,65 @@ public partial class AgentPanel : UserControl
         UpdateControls();
     }
 
-    private async void PreviewContext(object sender, RoutedEventArgs e)
+    // Toolbar actions prepare a reviewable draft only. They never authorize an
+    // inference request or bypass the one-shot Generate button.
+    public async Task<bool> PrepareFromToolbarAsync(string requestedTaskType, string prompt)
     {
-        if (busy || sessionId is not Guid id || settings is null || settingsDirty) return;
+        if (!Dispatcher.CheckAccess())
+            return await Dispatcher.InvokeAsync(() => PrepareFromToolbarAsync(requestedTaskType, prompt)).Task.Unwrap();
+        if (busy) { SetStatus("已有一个操作正在运行，请先取消或等待完成。", true); return false; }
+        if (settingsDirty)
+        {
+            SettingsExpander.IsExpanded = true;
+            SettingsExpander.BringIntoView();
+            SetStatus("引擎设置尚未保存。请先保存，再从工具栏准备任务。", true);
+            return false;
+        }
+        if (settings is null)
+        {
+            await ReloadSettingsAsync();
+            if (settings is null) { SetStatus("尚未读取引擎设置，请先连接 Worker 并重新读取设置。", true); return false; }
+        }
+        if (busy || settingsDirty)
+        { SetStatus("请先完成当前操作并保存引擎设置，再从工具栏准备任务。", true); return false; }
+        if (sessionId is null || !sessionHasText)
+        { SetStatus("请先打开一个已有文字的会话，再从工具栏准备任务。", true); return false; }
+        var choice = TaskFields.Children.OfType<WrapPanel>().SelectMany(panel => panel.Children.OfType<RadioButton>())
+            .FirstOrDefault(button => button.Tag is string tag && tag == requestedTaskType);
+        if (choice is null) { SetStatus("工具栏任务不可用，请在 Agent 中重新选择任务。", true); return false; }
+
+        choice.IsChecked = true;
+        taskType = requestedTaskType;
+        Prompt.Text = prompt ?? "";
+        InvalidatePreview();
+        UpdateControls();
         if (taskType == "custom" && string.IsNullOrWhiteSpace(Prompt.Text))
-        { SetStatus("请输入想问的问题。", true); return; }
+        {
+            Prompt.BringIntoView(); Prompt.Focus();
+            SetStatus("请输入想问的问题，再预览将发送的上下文。", true);
+            return false;
+        }
+        return await PreviewContextAsync();
+    }
+
+    private async void PreviewContext(object sender, RoutedEventArgs e) => await PreviewContextAsync();
+
+    public async Task<bool> PreviewContextAsync()
+    {
+        if (!Dispatcher.CheckAccess())
+            return await Dispatcher.InvokeAsync(PreviewContextAsync).Task.Unwrap();
+        if (busy) { SetStatus("已有一个操作正在运行，请先取消或等待完成。", true); return false; }
+        if (settingsDirty) { SetStatus("请先保存引擎设置，再预览上下文。", true); return false; }
+        if (sessionId is not Guid id || !sessionHasText)
+        { SetStatus("请先打开一个已有文字的会话，再预览上下文。", true); return false; }
+        if (settings is null || PreviewAsync is null)
+        { SetStatus("Agent 尚未连接，请重新读取引擎设置后重试。", true); return false; }
+        if (taskType == "custom" && string.IsNullOrWhiteSpace(Prompt.Text))
+        { Prompt.Focus(); SetStatus("请输入想问的问题。", true); return false; }
         var selected = settings.Providers.FirstOrDefault(p => p.Id == settings.SelectedProviderId);
         var request = new AgentTaskRequest(id, taskType, Prompt.Text, settings.ContextCharacterBudget, selected?.TimeoutSeconds ?? 60);
+        Guid? preparedId = null;
+        InvalidatePreview();
         await RunOperationAsync("正在整理并过滤会话上下文…", async cancellation =>
         {
             var callback = PreviewAsync ?? throw new InvalidOperationException("Agent backend is not connected.");
@@ -289,12 +341,17 @@ public partial class AgentPanel : UserControl
             cancellation.ThrowIfCancellationRequested();
             if (sessionId != value.SessionId) return;
             preview = value;
+            preparedId = value.PreviewId;
             PreviewText.Text = value.SystemPrompt + "\n\n" + value.UserPrompt;
             PreviewExpander.Visibility = Visibility.Visible;
             PreviewExpander.IsExpanded = true;
             UpdatePreviewSummary();
             SetStatus("请检查上方内容。点击“生成”后才会发送给所选引擎。");
         });
+        bool prepared = preparedId is not null && preview?.PreviewId == preparedId && sessionId == id;
+        if (prepared)
+            await Dispatcher.InvokeAsync(() => PreviewExpander.BringIntoView(), System.Windows.Threading.DispatcherPriority.Loaded);
+        return prepared;
     }
 
     private async void Generate(object sender, RoutedEventArgs e)

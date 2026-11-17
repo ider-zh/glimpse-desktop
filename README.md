@@ -21,9 +21,9 @@ dotnet run --project src/Glimpse.UI -c Release
 
 On Linux, run only `dotnet test tests/Glimpse.Tests -c Release` and `dotnet run --project tools/Glimpse.Benchmarks -c Release`; these do not verify Windows behavior. CI includes both Linux core and Windows build/package jobs.
 
-Select a region, choose OCR language, then explicitly start observation. Pause/close stops capture; reopening a session starts paused. Move the lens by its top border, resize from its edges, and operate the underlying application through the hollow interior. Inspect accumulated text, the recent nine snapshots, source evidence and possible gaps. Export the current document or delete a saved session. See the [Chinese user guide](docs/USER_GUIDE.md).
+Opening the app immediately asks you to draw a region; completing a valid selection starts local observation. An attached toolbar follows the lens with record access, start/stop, reselect, close-frame and editable Agent task prompts. Stop/close preserves records; canceling selection leaves capture stopped, and reopening saved sessions still starts paused. Toolbar prompts open reviewed context before a separate Generate action. Move/resize the hollow lens and operate the underlying application through it. See the [Chinese user guide](docs/USER_GUIDE.md) and [ADR 0007](docs/adr/0007-selection-first-toolbar.md).
 
-Default data: `%LOCALAPPDATA%\Glimpse\sessions.db`. `GLIMPSE_DATA_DIR` overrides the data folder; `GLIMPSE_OCR_LANGUAGE` selects an installed language. Normal observation never writes screenshots or contacts a provider. SQLite contains the OCR text you explicitly chose to observe.
+Default data: `%LOCALAPPDATA%\Glimpse\sessions.db`. `GLIMPSE_DATA_DIR` overrides the data folder; `GLIMPSE_OCR_LANGUAGE` selects an installed language. Observation never writes screenshots or uploads OCR context by itself. The selected CodeBuddy engine can fetch account model metadata on loading settings; inference still requires Generate. SQLite contains the OCR text you explicitly chose to observe.
 
 ## Agent engines
 

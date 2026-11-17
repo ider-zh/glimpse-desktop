@@ -1,4 +1,4 @@
-# Reader and Agent validation — 2026-11-16
+# Reader and Agent validation — 2026-11-17
 
 This is a measured development checkpoint, **not completed V0.1 acceptance**. Automated regression uses offline providers. Initial CodeBuddy checks found HTTP 401 with exit code 0; after the owner completed login, real generation, cancellation, model discovery/selection and exact copying passed with synthetic context. Glimpse did not inspect credential files or automate login. All screen fixtures were generated synthetic text; no user browsing content or screen images are committed. The owner explicitly requested Agent now and subagent implementation, superseding the original wait-for-Reader-acceptance ordering; hardware gates below remain open.
 
@@ -19,6 +19,7 @@ dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --prov
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-tests
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-terminal-tests
 dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-ui artifacts/codebuddy-login-ui.png
+dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --docked-toolbar artifacts/docked-toolbar.png
 ./scripts/publish.ps1
 ```
 
@@ -66,6 +67,9 @@ Remove-Item Env:GLIMPSE_DATA_DIR
 | App login terminal | Actual Windows ConPTY/Job child, TTY keyboard input, split/wrapped URL extraction, bounded memory, native exit and stop pass | `--login-terminal-tests` uses a synthetic executable only. First run caught inherited redirected standard handles overriding the terminal; explicit null startup handles fixed it. Input deadlines and shutdown are bounded; no real authentication was initiated. |
 | Login transport/UI | Worker pipe preserves login IDs/raw VT/input/resize/links, rejects simultaneous generation/config changes, serves heartbeat and cleans up on disconnect; xterm/WebView2 native component tested on device | Local bundled xterm 6.0.0 + addon-fit 0.11.0, WebView2 1.0.4314.35. Input, ANSI menu rendering, resize, terminal selection/clipboard, safe links, blocked external navigation, stop and close-during-start tested with synthetic delegates; composite WPF/WebView2 capture inspected. No real login is automated. See ADR 0006. |
 | UI | controls fit the default inspector; synthetic click/scroll/new-session/start/close flow checked | WPF visual-tree render inspected. External screenshots intentionally exclude the app's windows. |
+| Attached observation toolbar | Physical-pixel right/left docking, native clickable/excluded window, negative-monitor following and all task/control events pass | Actual 96-DPI Windows placement and native hit testing; own WPF render inspected. Nearly full-screen placement clamps controls into the work area. Mixed-DPI/disconnect matrix remains open. |
+| Selection-first workflow | Startup selector invoked once; completing selection starts actual synthetic OCR, record access preserves observation, stop/restart/close and canceled selection pass | `--docked-toolbar`: deterministic injected region selector, actual MainWindow/lens/Worker/SQLite and an isolated generated reading window. No user screen content or model calls. Closing frame retains records; reconnect/saved restore remain paused. |
+| Toolbar Agent bridge | Reply/custom/summary fields reach locally reviewed context; blank custom prompts rejected; no inference during preparation | `--agent-ui`: real WPF controls and fake inference counter. A separate Generate click remains required. |
 | Distribution | self-contained win-x64 folder and ZIP generated; packaged UI/Worker connect with `DOTNET_ROOT` pointing to a deliberately absent folder and multilevel lookup disabled | UI and Worker are independently published; see publish script. Both runtimeconfig files declare included frameworks. A genuinely fresh machine remains untested. |
 
 The recorded end-to-end run used a 720×480 region for approximately 28 seconds and reported P95 OCR + commit 66 ms and 142 MiB working set for the **single in-process probe**, including its WPF fixture. This excludes stability wait and does not represent the two-process production working set or 1080p performance. See raw output for exact duration. One native run and a short fixture are not an eight-hour soak or a statistically representative benchmark.
