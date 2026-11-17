@@ -1,7 +1,8 @@
 namespace Glimpse.Contracts;
 
 public record AgentTaskRequest(Guid SessionId, string TaskType, string Prompt = "",
-    int ContextCharacterBudget = 12000, int TimeoutSeconds = 60);
+    int ContextCharacterBudget = 12000, int TimeoutSeconds = 60,
+    Guid? PostId = null, List<Guid>? PostIds = null);
 
 public record ProviderRequest(string SystemPrompt, string UserPrompt, string Schema,
     string JsonSchema, int MaxOutputTokens = 1500);
@@ -11,12 +12,14 @@ public record ProviderResponse(string Text, string? Model = null);
 // They are local UI data and must never be written into ordinary logs.
 public record AgentContextPreview(Guid PreviewId, Guid SessionId, int DocumentRevision,
     string TaskType, string Schema, string JsonSchema, string SystemPrompt, string UserPrompt,
-    List<Guid> SelectedBlockIds, List<string> Warnings, int RedactionCount, int EstimatedTokens);
+    List<Guid> SelectedBlockIds, List<string> Warnings, int RedactionCount, int EstimatedTokens,
+    Guid? PostId = null, string? PostTitle = null, List<AgentContextPreview>? Children = null);
 
 public record AgentCard(string Title, string Text, string? Tone = null);
 public record AgentResult(Guid PreviewId, Guid SessionId, int DocumentRevision, string ProviderId,
     string TaskType, string Schema, string Status, List<AgentCard> Cards, string? FallbackText,
-    string? Error, long ElapsedMs, List<string> Warnings);
+    string? Error, long ElapsedMs, List<string> Warnings,
+    Guid? PostId = null, string? PostTitle = null, List<AgentResult>? PostResults = null);
 
 // Login terminal contents and URLs can contain short-lived authentication secrets.
 // They are ephemeral UI data, never session history or ordinary diagnostic text.

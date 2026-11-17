@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Glimpse.Agent;
 using Glimpse.Contracts;
 using Glimpse.Providers;
@@ -24,7 +25,7 @@ public sealed class AgentController(ProviderSettingsStore settings, SessionRepos
         if (request.TimeoutSeconds is < 1 or > 180) throw new InvalidOperationException("调用时限必须在 1–180 秒之间。");
         var configured = await settings.LoadPublicAsync(cancellation);
         var profile = configured.Providers.First(p => p.Id == configured.SelectedProviderId);
-        var preview = new SessionContextBuilder().Build(session, request with
+        var preview = PostTaskPlanner.Build(session, request with
         { ContextCharacterBudget = Math.Min(request.ContextCharacterBudget, configured.ContextCharacterBudget) });
         if (previews.Count >= 4) previews.Clear();
         previews[preview.PreviewId] = new(preview, profile, Math.Min(request.TimeoutSeconds, profile.TimeoutSeconds), DateTimeOffset.UtcNow);
@@ -49,9 +50,34 @@ public sealed class AgentController(ProviderSettingsStore settings, SessionRepos
                 throw new InvalidOperationException("引擎设置已变化，请重新预览后再生成。");
             // The frozen preview is the entire outbound prompt. New OCR revisions never
             // silently add text between review and generation.
-            var provider = providerFactory is null ? await settings.CreateProviderAsync(profile.Id, linked.Token) :
-                await providerFactory(profile.Id, linked.Token);
-            var result = await new AgentRunner(provider).RunPreparedAsync(prepared.Preview, prepared.Timeout, linked.Token);
+            AgentResult result;
+            if (prepared.Preview.Children is { Count: > 0 } children)
+            {
+                var timer = Stopwatch.StartNew();
+                using var slots = new SemaphoreSlim(PostTaskPlanner.Parallelism);
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+                deadline.CancelAfter(TimeSpan.FromSeconds(prepared.Timeout));
+                var tasks = children.Select(async child =>
+                {
+                    bool acquired = false;
+                    try
+                    {
+                        await slots.WaitAsync(deadline.Token); acquired = true;
+                        var childResult = await RunChildAsync(child, profile.Id, prepared.Timeout, deadline.Token);
+                        return childResult.Status == "canceled" && !linked.IsCancellationRequested && deadline.IsCancellationRequested
+                            ? childResult with { Status = "timeout", Error = "本次批量任务已达到总等待上限。" } : childResult;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return new AgentResult(child.PreviewId, child.SessionId, child.DocumentRevision, profile.Id,
+                            child.TaskType, child.Schema, linked.IsCancellationRequested ? "canceled" : "timeout", [], null,
+                            linked.IsCancellationRequested ? "调用已取消。" : "本次批量任务已达到总等待上限。", 0, child.Warnings, child.PostId, child.PostTitle);
+                    }
+                    finally { if (acquired) slots.Release(); }
+                }).ToArray();
+                result = PostTaskPlanner.Combine(prepared.Preview, profile.Id, (await Task.WhenAll(tasks)).ToList(), timer.ElapsedMilliseconds);
+            }
+            else result = await RunChildAsync(prepared.Preview, profile.Id, prepared.Timeout, linked.Token);
             await repository.SaveAgentResultAsync(result, profile.Model, CancellationToken.None);
             return result;
         }
@@ -59,6 +85,28 @@ public sealed class AgentController(ProviderSettingsStore settings, SessionRepos
         {
             lock (state) { active = null; activePreview = null; }
             execution.Release();
+        }
+    }
+
+    private async Task<AgentResult> RunChildAsync(AgentContextPreview child, string profileId, int timeout, CancellationToken cancellation)
+    {
+        try
+        {
+            cancellation.ThrowIfCancellationRequested();
+            // A fresh provider/CLI process per post; no shared conversation or other post payload.
+            var provider = providerFactory is null ? await settings.CreateProviderAsync(profileId, cancellation) :
+                await providerFactory(profileId, cancellation);
+            return await new AgentRunner(provider).RunPreparedAsync(child, timeout, cancellation);
+        }
+        catch (OperationCanceledException)
+        {
+            return new(child.PreviewId, child.SessionId, child.DocumentRevision, profileId, child.TaskType, child.Schema,
+                "canceled", [], null, "调用已取消。", 0, child.Warnings, child.PostId, child.PostTitle);
+        }
+        catch (Exception)
+        {
+            return new(child.PreviewId, child.SessionId, child.DocumentRevision, profileId, child.TaskType, child.Schema,
+                "error", [], null, "无法启动帖子引擎，请检查配置后重试。", 0, child.Warnings, child.PostId, child.PostTitle);
         }
     }
 

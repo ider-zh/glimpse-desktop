@@ -18,6 +18,10 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.Contains("--acp")) return ModelCatalogProbe.Child(args);
+        if (args.Contains("--source-context-reader"))
+        {
+            SourceContextProbe.RunReaderIdentity().GetAwaiter().GetResult(); return 0;
+        }
         if (args.Length == 2 && args[0] == "--codebuddy-models")
         {
             ModelCatalogProbe.Live(args[1]).GetAwaiter().GetResult(); return 0;
@@ -49,6 +53,10 @@ internal static class Program
             AgentControllerProbes.Run().GetAwaiter().GetResult();
             AgentPipeProbe.Run().GetAwaiter().GetResult(); return 0;
         }
+        if (args.Contains("--post-agent-tests"))
+        {
+            PostAgentControllerProbes.Run().GetAwaiter().GetResult(); return 0;
+        }
         if (args.Contains("--provider-child")) return ProviderProbes.RunChild(args);
         if (args.Contains("--provider-tests"))
         {
@@ -70,7 +78,7 @@ internal static class Program
         }
         int exit = 1;
         Application app;
-        if (args.Contains("--ui-render") || args.Contains("--agent-ui") || args.Contains("--login-ui") || args.Contains("--live-agent-ui") || args.Contains("--live-sidebar-agent") || args.Contains("--docked-toolbar") || args.Contains("--sidebar-agent"))
+        if (args.Contains("--ui-render") || args.Contains("--agent-ui") || args.Contains("--login-ui") || args.Contains("--live-agent-ui") || args.Contains("--live-sidebar-agent") || args.Contains("--docked-toolbar") || args.Contains("--sidebar-agent") || args.Contains("--post-agent-ui") || args.Contains("--live-post-agent-ui"))
         {
             var uiApp = new Glimpse.UI.App { LaunchMainWindow = false, ShutdownMode = ShutdownMode.OnExplicitShutdown };
             uiApp.InitializeComponent(); app = uiApp;
@@ -80,13 +88,17 @@ internal static class Program
         {
             try
             {
-                if (args.Length == 2 && args[0] == "--sidebar-agent") await SidebarAgentProbe.Run(args[1]);
+                if (args.Length == 3 && args[0] == "--post-agent-ui") await PostAgentUiProbe.Run(args[1], args[2], false);
+                else if (args.Length == 3 && args[0] == "--live-post-agent-ui") await PostAgentUiProbe.Run(args[1], args[2], true);
+                else if (args.Length == 2 && args[0] == "--sidebar-agent") await SidebarAgentProbe.Run(args[1]);
                 else if (args.Length == 2 && args[0] == "--docked-toolbar") await DockedToolbarProbe.Run(args[1]);
                 else if (args.Length == 3 && args[0] == "--live-sidebar-agent") await LiveSidebarAgentProbe.Run(args[1], args[2]);
                 else if (args.Length == 3 && args[0] == "--live-agent-ui") await LiveAgentUiProbe.Run(args[1], args[2]);
                 else if (args.Length == 2 && args[0] == "--login-ui") await LoginUiProbe.Run(args[1]);
                 else if (args.Length == 2 && args[0] == "--agent-ui") await AgentUiProbe.Run(args[1]);
                 else if (args.Contains("--ocr-corpus")) await OcrCorpusProbe.Run();
+                else if (args.Contains("--dynamic-ocr")) await DynamicOcrProbe.Run();
+                else if (args.Contains("--source-context")) await SourceContextProbe.Run();
                 else if (args.Contains("--reader")) await RunReaderProbe();
                 else if (args.Length == 2 && args[0] == "--ui-render") await RenderUi(args[1]);
                 else await RunProbe(args.Contains("--negative"));

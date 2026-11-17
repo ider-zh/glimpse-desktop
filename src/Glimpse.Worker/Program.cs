@@ -58,6 +58,7 @@ public static class Program
             var inFlight = new ConcurrentDictionary<Guid, byte>();
             var background = new List<Task>();
             int modelCatalogRunning = 0;
+            int dynamicAnalysisRunning = 0;
             void Remember(Envelope response)
             {
                 if (replies.Count >= 128) replies.TryRemove(replies.Keys.FirstOrDefault(), out _);
@@ -104,6 +105,11 @@ public static class Program
                     }
                     if (request.MessageType == "agent-run")
                     {
+                        if (Volatile.Read(ref dynamicAnalysisRunning) != 0)
+                        {
+                            await Send(Envelope.Create("error", new { message = "请等待动态区域分析完成，再重新生成。" }, request: request.RequestId));
+                            continue;
+                        }
                         if (login.HasSession)
                         {
                             await Send(Envelope.Create("error", new { message = "请先结束登录终端，再重新预览、生成。" }, request: request.RequestId));
@@ -128,6 +134,35 @@ public static class Program
                                     "Agent 调用未完成，请检查配置、重新预览后重试。"
                                 }, request: request.RequestId);
                             }
+                            Remember(response); inFlight.TryRemove(request.RequestId, out _);
+                            try { await Send(response); } catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+                        }, CancellationToken.None));
+                        continue;
+                    }
+                    if (request.MessageType == "analyze-dynamic-regions")
+                    {
+                        if (Interlocked.CompareExchange(ref dynamicAnalysisRunning, 1, 0) != 0)
+                        {
+                            await Send(Envelope.Create("error", new { message = "正在分析动态区域，请稍候。" }, request: request.RequestId));
+                            continue;
+                        }
+                        if (!inFlight.TryAdd(request.RequestId, 0))
+                        { Volatile.Write(ref dynamicAnalysisRunning, 0); continue; }
+                        agent.Invalidate();
+                        background.Add(Task.Run(async () =>
+                        {
+                            Envelope response;
+                            try
+                            {
+                                await service.AnalyzeDynamicRegionsAsync(stop.Token);
+                                response = Envelope.Create("dynamic-regions-analyzed", new { }, request: request.RequestId);
+                            }
+                            catch (Exception ex)
+                            {
+                                response = Envelope.Create("error", new { message = ex is InvalidOperationException ? ex.Message :
+                                    "动态区域分析已中止。请重试或手动框选视频。" }, request: request.RequestId);
+                            }
+                            finally { Volatile.Write(ref dynamicAnalysisRunning, 0); }
                             Remember(response); inFlight.TryRemove(request.RequestId, out _);
                             try { await Send(response); } catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
                         }, CancellationToken.None));
@@ -173,6 +208,8 @@ public static class Program
                                 reply = Envelope.Create("agent-settings", await providerSettings.SaveAsync(request.Read<AgentProviderUpdate>(), stop.Token), request: request.RequestId);
                                 Remember(reply); await Send(reply); continue;
                             case "agent-preview":
+                                if (Volatile.Read(ref dynamicAnalysisRunning) != 0)
+                                    throw new InvalidOperationException("请等待动态区域分析完成，再重新发送任务。");
                                 if (login.HasSession) throw new InvalidOperationException("请先结束登录终端，再预览上下文。");
                                 reply = Envelope.Create("agent-preview", await agent.PreviewAsync(request.Read<AgentTaskRequest>(), stop.Token), request: request.RequestId);
                                 Remember(reply); await Send(reply); continue;
@@ -213,6 +250,9 @@ public static class Program
                             case "pause": await service.PauseAsync(true, stop.Token); break;
                             case "observe": await service.PauseAsync(false, stop.Token); break;
                             case "rect": await service.SetRectAsync(request.Read<RectRequest>().Rect, stop.Token); break;
+                            case "ignore-regions":
+                                agent.Invalidate();
+                                await service.SetIgnoreRegionsAsync(request.Read<IgnoreRegionsRequest>().Regions, stop.Token); break;
                             case "refresh": await service.PauseAsync(false, stop.Token); break;
                             case "delete":
                                 agent.Invalidate();

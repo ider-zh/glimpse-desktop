@@ -394,7 +394,7 @@ public partial class AgentPanel : UserControl
     public void ShowStoredResult(AgentResult result)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(() => ShowStoredResult(result)); return; }
-        if (sessionId != result.SessionId || result.Status is not ("completed" or "fallback") ||
+        if (sessionId != result.SessionId || result.Status is not ("completed" or "fallback" or "partial") ||
             busy || preview is not null || !string.IsNullOrEmpty(ResultSummary.Text)) return;
         InvalidatePreview();
         ClearResults();
@@ -411,7 +411,7 @@ public partial class AgentPanel : UserControl
         string model = restored || string.IsNullOrWhiteSpace(provider?.Model) ? "" : $" · {provider.Model}";
         ResultSummary.Text = $"{providerLabel}{model} · 修订 {result.DocumentRevision} · {result.ElapsedMs / 1000d:0.0} 秒" +
             (restored ? " · 已保存的结果" : "");
-        ResultWarnings.Text = string.Join("\n", result.Warnings.Distinct());
+        ResultWarnings.Text = string.Join("\n", result.Warnings.Select(AgentWarningText.Display).Distinct());
         Cards.ItemsSource = result.Cards;
         if (result.Status == "fallback" && result.FallbackText is not null)
         {
@@ -421,6 +421,7 @@ public partial class AgentPanel : UserControl
         SetStatus(restored ? "已恢复上次结果，可直接复制。再次生成前请重新预览。" : result.Status switch
         {
             "completed" => "已生成。复制后可自行修改；不会自动发布或发送。",
+            "partial" => "部分帖子已生成，可复制已完成结果；其他帖子状态见下方。",
             "fallback" => "回答格式未通过校验，请检查下方原始文字。",
             "canceled" => "已取消生成。",
             "timeout" => "生成超时。可以重试或调整等待上限。",

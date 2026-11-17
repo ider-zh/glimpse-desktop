@@ -94,13 +94,6 @@ public partial class DockedToolbarWindow : Window
 
     private void UpdateControls()
     {
-        if (ObserveButton is null) return;
-        CaptureStatus.Text = status;
-        StateLabel.Text = observing ? "观察中" : "已停止";
-        StateDot.Fill = observing ? new SolidColorBrush(Color.FromRgb(25, 118, 111)) : new SolidColorBrush(Color.FromRgb(132, 146, 166));
-        ObserveButton.Content = observing ? "停止观察" : "开始观察";
-        ObserveButton.ToolTip = observing ? "立即停止截图和识别，已记录的内容保留" : "开始观察框内的本地识别";
-        ObserveButton.IsEnabled = IsCaptureExcluded;
         UpdateAgentControls();
     }
     private void OpenRecords(object sender, RoutedEventArgs e) => RecordsRequested?.Invoke();

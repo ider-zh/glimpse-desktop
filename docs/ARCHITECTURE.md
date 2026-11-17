@@ -1,5 +1,7 @@
 # Glimpse V0.1 — Architecture and Session Memory
 
+The current local Observer/post evidence extension and its conservative layout limitations are documented in [POST_SEGMENTATION.md](POST_SEGMENTATION.md). Post contexts are isolated by durable block IDs; local segmentation does not initiate model calls.
+
 ## 1. Components
 
 - `Glimpse.UI` (.NET 10 WPF): physical-pixel lens geometry adapter, transparent topmost border, click-through hit-test, side toolbar, session inspector and result cards.

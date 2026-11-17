@@ -17,13 +17,18 @@ try {
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --provider-tests
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --login-terminal-tests
     Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-tests
+    Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --post-agent-tests
+    Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --source-context-reader
     if ($InteractiveWindows) {
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --reader
+        Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --dynamic-ocr
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --ocr-corpus
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --docked-toolbar artifacts/docked-toolbar.png
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --agent-ui artifacts/agent-cards.png
         Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --sidebar-agent artifacts/sidebar-agent.png
+        $postFixture = Join-Path $env:TEMP ('glimpse-post-ui-' + [Guid]::NewGuid().ToString('N'))
+        Invoke-Dotnet run --project tests/Glimpse.Windows.Probe -c Release --no-build -- --post-agent-ui $postFixture artifacts/post-agent-ui.png
     }
 }
 finally { Pop-Location }

@@ -21,19 +21,23 @@ public sealed partial class SessionReconciler : ISequenceAligner
         var incoming = observation.Blocks.Where(b => !string.IsNullOrWhiteSpace(b.Text)).ToList();
         var normalized = incoming.Select(b => Normalize(b.Text)).ToArray();
         var last = session.Snapshots.LastOrDefault();
-        if (last is not null && last.Observation.Blocks.Select(b => Normalize(b.Text)).SequenceEqual(normalized))
+        if (last is not null && !last.BlockIds.Any(id => session.Blocks.Any(b => b.Id == id && b.Source.Geometry?.Role == "masked")) &&
+            SameContext(last.Observation.ContextId, observation.ContextId) &&
+            last.Observation.Blocks.Select(b => Normalize(b.Text)).SequenceEqual(normalized))
             return new(session, false, 0, normalized.Length);
         if (incoming.Count == 0) return new(session, false, 0, 0);
 
         // Align against recent ordered observations, not a global set of text hashes.
         // Exact long lines are anchors; short identical replies need a second neighbor.
-        var candidates = session.Snapshots.AsEnumerable().Reverse().ToList();
-        if (session.Blocks.Count > 0)
+        var candidates = session.Snapshots.AsEnumerable().Reverse()
+            .Where(s => SameContext(s.Observation.ContextId, observation.ContextId)).ToList();
+        var durable = session.Blocks.Where(b => SameContext(b.Source.Geometry?.ContextId, observation.ContextId)).ToList();
+        if (durable.Count > 0)
             candidates.Add(new(Guid.Empty, 0, observation with
             {
-                Blocks = session.Blocks.Select(b =>
+                Blocks = durable.Select(b =>
                 new OcrBlock(b.Text, new(0, 0, 0, 0))).ToList()
-            }, session.Blocks.Select(b => b.Id).ToList(), 0, 0, 0));
+            }, durable.Select(b => b.Id).ToList(), 0, 0, 0));
         Dictionary<int, Guid> matches = [];
         int bestScore = 0;
         foreach (var candidate in candidates)
@@ -74,7 +78,10 @@ public sealed partial class SessionReconciler : ISequenceAligner
                     {
                         Observations = previous.Source.Observations + 1,
                         LastObservedText = incoming[i].Text,
-                        Variants = variants
+                        Variants = variants,
+                        Geometry = new(sequence, incoming[i].Bounds, observation.ContextId,
+                            previous.Source.Geometry?.Role == "masked" ? null : previous.Source.Geometry?.PostId,
+                            previous.Source.Geometry?.Role == "masked" ? null : previous.Source.Geometry?.Role)
                     }
                 };
                 if (variant) uncertain++;
@@ -85,7 +92,8 @@ public sealed partial class SessionReconciler : ISequenceAligner
                 session.Blocks.Any(b => b.Normalized == normalized[i]);
             var block = new ContentBlock(Guid.NewGuid(), incoming[i].Text, normalized[i],
                 ambiguous ? "uncertain" : "confirmed",
-                new(observation.CapturedAtMs, sequence, incoming[i].Text, 1, incoming[i].Text));
+                new(observation.CapturedAtMs, sequence, incoming[i].Text, 1, incoming[i].Text,
+                    Geometry: new(sequence, incoming[i].Bounds, observation.ContextId)));
             // Insert before the next aligned anchor, or after the preceding block. This
             // handles both upward and downward scrolls without moving existing evidence.
             int next = Enumerable.Range(i + 1, incoming.Count - i - 1).FirstOrDefault(matches.ContainsKey, -1);
@@ -116,8 +124,12 @@ public sealed partial class SessionReconciler : ISequenceAligner
             Revision = sequence,
             UpdatedAtMs = observation.CapturedAtMs
         };
-        return new(updated, true, added, matches.Count);
+        // Keep post identity and geometry in durable provenance, independent of the
+        // nine detailed OCR snapshots retained for alignment.
+        return new(new PostSegmenter().Annotate(updated), true, added, matches.Count);
     }
+
+    private static bool SameContext(string? previous, string? current) => previous == current;
 
     private static List<(int Old, int New)> Align(string[] old, string[] current)
     {

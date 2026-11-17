@@ -15,6 +15,7 @@ public partial class MainWindow : Window
     private readonly WorkerClient worker = new();
     private LensWindow? lens;
     private DockedToolbarWindow? toolbar;
+    private ObservationToolbarWindow? observationToolbar;
     private CodeBuddyLoginWindow? loginWindow;
     private SessionData? current;
     private PixelRect rect = new(100, 160, 700, 420);
@@ -30,6 +31,7 @@ public partial class MainWindow : Window
     public bool IsObserving => observing;
     public PixelRect? SelectedRegion => lens?.CaptureRect;
     public DockedToolbarWindow? DockedToolbar => toolbar;
+    public ObservationToolbarWindow? ObservationToolbar => observationToolbar;
     public MainWindow(bool selectOnStartup = false, Func<PixelRect?>? regionSelection = null)
     {
         this.regionSelection = regionSelection;
@@ -139,7 +141,7 @@ public partial class MainWindow : Window
                     {
                         Guid restoredId = current.Id;
                         var history = (await worker.RequestAsync("agent-history", new SessionRequest(restoredId))).Read<List<AgentResult>>();
-                        var savedResult = history.FirstOrDefault(result => result.Status is "completed" or "fallback");
+                        var savedResult = history.FirstOrDefault(result => result.Status is "completed" or "fallback" or "partial");
                         if (current?.Id == restoredId && savedResult is not null)
                         {
                             AgentView.ShowStoredResult(savedResult);
@@ -160,6 +162,7 @@ public partial class MainWindow : Window
                     "Idle" => "等待画面变化…",
                     _ => update.State
                 };
+                if (!string.IsNullOrWhiteSpace(update.CaptureNotice)) Status.Text = update.CaptureNotice;
                 StateDot.Fill = update.State switch
                 {
                     "Recorded" => new SolidColorBrush(Color.FromRgb(25, 118, 111)),
@@ -250,6 +253,7 @@ public partial class MainWindow : Window
         if (lens is not null)
         {
             lens.Show(); toolbar?.Show(); toolbar?.Follow(lens.CaptureRect);
+            observationToolbar?.Show(); observationToolbar?.Follow(lens.CaptureRect);
             return true;
         }
         try
@@ -259,6 +263,8 @@ public partial class MainWindow : Window
             {
                 rect = value;
                 toolbar?.Follow(value);
+                observationToolbar?.Follow(value);
+                lens?.SetIgnoreRegions([]);
                 Geometry.Text = $"物理像素 ({rect.X}, {rect.Y}) · {rect.Width} × {rect.Height}";
                 rectTimer.Stop(); rectTimer.Start();
             };
@@ -279,12 +285,18 @@ public partial class MainWindow : Window
             };
             lens.Show();
             toolbar = new DockedToolbarWindow { Owner = lens };
-            toolbar.RecordsRequested += OpenRecords;
-            toolbar.ToggleObservationRequested += async () => await ToggleObservationAsync();
-            toolbar.ReselectRequested += async () => await SelectObservationRegionAsync();
             toolbar.CloseLensRequested += async () => await CloseObservationAsync();
             toolbar.SettingsRequested += OpenSidebarSettings;
             toolbar.GenerateAsync = GenerateSidebarAsync;
+            observationToolbar = new ObservationToolbarWindow { Owner = lens };
+            observationToolbar.RecordsRequested += OpenRecords;
+            observationToolbar.ToggleObservationRequested += async () => await ToggleObservationAsync();
+            observationToolbar.ReselectRequested += async () => await SelectObservationRegionAsync();
+            observationToolbar.IgnoreRegionRequested += async () => await SelectIgnoreRegionAsync();
+            observationToolbar.AnalyzeDynamicRegionsRequested += async () => await AnalyzeDynamicRegionsAsync();
+            observationToolbar.ClearIgnoreRegionsRequested += async () => await ClearIgnoreRegionsAsync();
+            observationToolbar.CloseLensRequested += async () => await CloseObservationAsync();
+            observationToolbar.Follow(rect); observationToolbar.Show();
             toolbar.Follow(rect); toolbar.Show(); UpdateToolbar();
             return true;
         }
@@ -292,6 +304,7 @@ public partial class MainWindow : Window
         {
             closingObservation = true;
             toolbar?.CloseForOwner(); toolbar = null;
+            observationToolbar?.CloseForOwner(); observationToolbar = null;
             lens?.Close(); lens = null; closingObservation = false;
             ShowError(ex.Message); return false;
         }
@@ -317,7 +330,7 @@ public partial class MainWindow : Window
         try
         {
             if (workerConnected && !await Send("pause", new { })) return;
-            lens?.Hide(); toolbar?.Hide(); Hide();
+            lens?.Hide(); toolbar?.Hide(); observationToolbar?.Hide(); Hide();
             PixelRect? selected;
             if (regionSelection is not null) selected = regionSelection();
             else
@@ -327,14 +340,14 @@ public partial class MainWindow : Window
             }
             if (selected is null || !selected.IsValid)
             {
-                lens?.Show(); toolbar?.Show(); Show(); Activate();
+                lens?.Show(); toolbar?.Show(); observationToolbar?.Show(); Show(); Activate();
                 Status.Text = "已取消框选，观察保持停止。可重新选择区域或打开已有记录。";
                 UpdateToolbar(); return;
             }
             rect = selected;
             await workerConnection.Task.WaitAsync(TimeSpan.FromSeconds(20), shutdown.Token);
             if (closing || !EnsureLens()) return;
-            lens!.Restore(rect); toolbar?.Follow(rect); rectTimer.Stop();
+            lens!.Restore(rect); toolbar?.Follow(rect); observationToolbar?.Follow(rect); rectTimer.Stop();
             bool prepared = startNewSession || current is null ?
                 await Send("new", new StartRequest($"阅读 {DateTime.Now:MM-dd HH:mm:ss}", rect)) :
                 await Send("rect", new RectRequest(rect));
@@ -360,6 +373,45 @@ public partial class MainWindow : Window
         await Send("rect", new RectRequest(lens!.CaptureRect));
         await Send("observe", new { });
     }
+    public async Task SelectIgnoreRegionAsync()
+    {
+        if (lens is null || current is null || selectingRegion || closingObservation) return;
+        bool resume = observing;
+        Guid sessionId = current.Id;
+        PixelRect bounds = lens.CaptureRect;
+        selectingRegion = true;
+        try
+        {
+            await Send("pause", new { });
+            var selector = new SelectionWindow(bounds);
+            if (selector.ShowDialog() == true && selector.Selected is { } selected && current?.Id == sessionId && lens?.CaptureRect == bounds)
+                await AddIgnoreRegionAsync(new(selected.X - bounds.X, selected.Y - bounds.Y, selected.Width, selected.Height));
+        }
+        finally
+        {
+            selectingRegion = false;
+            if (resume && !closing && current?.Id == sessionId && lens?.CaptureRect == bounds) await Send("observe", new { });
+        }
+    }
+    public async Task AddIgnoreRegionAsync(PixelRect region)
+    {
+        if (current is null || lens is null) return;
+        var masks = current.IgnoreRegions?.ToList() ?? [];
+        masks.Add(region);
+        await Send("ignore-regions", new IgnoreRegionsRequest(masks));
+    }
+    public async Task ClearIgnoreRegionsAsync()
+    { if (current is not null) await Send("ignore-regions", new IgnoreRegionsRequest([])); }
+    public async Task AnalyzeDynamicRegionsAsync()
+    {
+        if (current is null || lens is null || observationToolbar is not { } target || selectingRegion || closingObservation) return;
+        target.SetAnalyzing(true);
+        try { await worker.RequestAsync("analyze-dynamic-regions", new { }, cancellation: shutdown.Token); }
+        catch (OperationCanceledException) when (closing) { }
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or TimeoutException or ObjectDisposedException)
+        { Status.Text = ex is InvalidOperationException ? ex.Message : "动态区域分析未完成，请检查连接或手动框选忽略区域。"; }
+        finally { if (observationToolbar == target) { target.SetAnalyzing(false); UpdateToolbar(); } }
+    }
     private async void Refresh(object sender, RoutedEventArgs e)
     {
         if (current is not null && EnsureLens()) await Send("refresh", new { });
@@ -379,6 +431,7 @@ public partial class MainWindow : Window
             if (workerConnected) await Send("pause", new { });
             observing = false; ObserveButton.Content = "开始观察";
             toolbar?.CloseForOwner(); toolbar = null;
+            observationToolbar?.CloseForOwner(); observationToolbar = null;
             lens?.Close(); lens = null;
             if (!closing) { OpenRecords(); Status.Text = "观察框已关闭，已记录文字保留。选择区域可再次开始。"; }
         }
@@ -389,6 +442,9 @@ public partial class MainWindow : Window
         toolbar?.SetSession(current?.Id);
         toolbar?.UpdateState(observing, Status.Text, current?.Blocks.Count ?? 0,
             current?.Blocks.Sum(b => b.Text.Length) ?? 0, current?.Blocks.Count > 0);
+        toolbar?.SetPostCatalog(current);
+        observationToolbar?.UpdateState(observing, Status.Text, current?.IgnoreRegions?.Count ?? 0);
+        lens?.SetIgnoreRegions(current?.IgnoreRegions);
     }
     private void OpenRecords()
     {
@@ -410,16 +466,19 @@ public partial class MainWindow : Window
         if (AgentView.HasUnsavedSettings)
             throw new InvalidOperationException("引擎设置尚未保存。请点击侧边栏的设置入口保存后再发送。");
         var target = toolbar ?? throw new InvalidOperationException("侧边栏已关闭。");
+        var postIds = target.SelectedPostIds.ToList();
+        if (postIds.Count == 0) throw new InvalidOperationException("尚未识别到可处理的正文，请继续观察或调整区域。");
         var settings = (await worker.RequestAsync("agent-settings-get", new { }, cancellation: cancellation)).Read<AgentSettings>();
         var provider = settings.Providers.Single(p => p.Id == settings.SelectedProviderId);
-        var request = new AgentTaskRequest(session.Id, taskType, prompt, settings.ContextCharacterBudget, provider.TimeoutSeconds);
+        var request = new AgentTaskRequest(session.Id, taskType, prompt, settings.ContextCharacterBudget, provider.TimeoutSeconds,
+            PostIds: postIds);
         var preview = (await worker.RequestAsync("agent-preview", request, cancellation: cancellation)).Read<AgentContextPreview>();
         cancellation.ThrowIfCancellationRequested();
         if (current?.Id != session.Id || toolbar != target)
             throw new OperationCanceledException(cancellation);
         target.SetPreview(preview);
         using var registration = cancellation.Register(() => _ = CancelAgentAsync(preview.PreviewId));
-        return (await worker.RequestAsync("agent-run", new { previewId = preview.PreviewId }, TimeSpan.FromMinutes(4), cancellation)).Read<AgentResult>();
+        return (await worker.RequestAsync("agent-run", new { previewId = preview.PreviewId }, TimeSpan.FromMinutes(8), cancellation)).Read<AgentResult>();
     }
     private async void DeleteSession(object sender, RoutedEventArgs e)
     {
@@ -465,6 +524,7 @@ public partial class MainWindow : Window
         AgentView.CancelPending();
         if (loginWindow is not null) await loginWindow.StopAndCloseAsync();
         toolbar?.CloseForOwner(); toolbar = null;
+        observationToolbar?.CloseForOwner(); observationToolbar = null;
         lens?.Close(); lens = null;
         await worker.DisposeAsync();
         Close();

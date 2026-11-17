@@ -1,7 +1,7 @@
 <Window x:Class="Glimpse.UI.DockedToolbarWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Glimpse 观察工具栏" Width="360" Height="760" MinWidth="0" MinHeight="0"
+        Title="Glimpse Agent" Width="360" Height="760" MinWidth="0" MinHeight="0"
         WindowStyle="None" ResizeMode="NoResize" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False"
         FontFamily="Segoe UI, Microsoft YaHei UI" FontSize="13" Foreground="#203044"
@@ -24,37 +24,27 @@
     <Border.Effect><DropShadowEffect Color="#213E3A" Opacity="0.16" BlurRadius="9" ShadowDepth="2"/></Border.Effect>
     <Grid>
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
-        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/>
+        <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+        <RowDefinition Height="Auto"/><RowDefinition Height="*"/>
       </Grid.RowDefinitions>
       <DockPanel>
         <Button x:Name="SettingsButton" DockPanel.Dock="Right" Content="设置" Click="OpenSettings" Padding="7,3" MinHeight="25" FontSize="11" Margin="9,0,0,0" ToolTip="配置引擎、模型和登录"/>
-        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-          <Ellipse x:Name="StateDot" Width="7" Height="7" Fill="#8492A6" Margin="0,0,6,0"/>
-          <TextBlock x:Name="StateLabel" Text="已停止" FontSize="11" Foreground="#617387"/>
-        </StackPanel>
-        <TextBlock Text="GLIMPSE" Foreground="#19766F" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
+        <TextBlock Text="GLIMPSE · AGENT" Foreground="#19766F" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
       </DockPanel>
       <StackPanel Grid.Row="1" Margin="0,8,0,12">
-        <TextBlock x:Name="CaptureStatus" Text="等待开始观察" Foreground="#617387" FontSize="12" TextTrimming="CharacterEllipsis" LineHeight="18" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" AutomationProperties.LiveSetting="Polite"/>
         <TextBlock x:Name="Counts" Text="已记录 0 块 · 0 字" FontSize="11" Foreground="#617387" Margin="0,3,0,0"/>
       </StackPanel>
-      <Grid Grid.Row="2">
-        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="8"/><ColumnDefinition/></Grid.ColumnDefinitions>
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="7"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <Button x:Name="RecordsButton" Content="记录区" Click="OpenRecords" ToolTip="查看已保存的会话、累计文本和生成结果"/>
-        <Button x:Name="ObserveButton" Grid.Column="2" Content="开始观察" Click="ToggleObservation" ToolTip="开始或停止当前区域的本地观察"/>
-        <Button x:Name="ReselectButton" Grid.Row="2" Content="重新框选" Click="Reselect" ToolTip="停止当前观察，然后重新选择屏幕区域"/>
-        <Button x:Name="CloseLensButton" Grid.Row="2" Grid.Column="2" Content="关闭观察框" Click="CloseLens" Foreground="#8F4C40" ToolTip="立即停止观察并关闭观察框；已记录内容保留"/>
-      </Grid>
-      <Border Grid.Row="3" Height="1" Background="#DCE5EA" Margin="0,14,0,12"/>
-      <Grid Grid.Row="4" Margin="0,0,0,9">
+      <Grid Grid.Row="2" Margin="0,0,0,9">
         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <TextBlock x:Name="AgentStatus" Text="先记录一些文字，再点击任务或发送问题。" Foreground="#617387" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
         <Button x:Name="CancelButton" Grid.Column="1" Content="取消生成" Click="CancelRequest" Margin="7,0,0,0" Visibility="Collapsed"/>
       </Grid>
-      <ScrollViewer x:Name="AgentScroll" Grid.Row="5" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,3,0">
+      <ScrollViewer x:Name="AgentScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,3,0">
         <StackPanel>
+          <TextBlock Text="处理哪条内容" FontWeight="SemiBold" Margin="0,0,0,7"/>
+          <WrapPanel x:Name="PostButtons"/>
+          <CheckBox x:Name="AllPostsToggle" Content="全部分条处理（最多 4 条）" Checked="AllPostsChanged" Unchecked="AllPostsChanged" Margin="0,0,0,7" AutomationProperties.Name="全部帖子独立生成"/>
+          <TextBlock x:Name="PostScopeNotice" Text="观察后自动整理正文，界面控件不参与生成。" FontSize="11" Foreground="#617387" TextWrapping="Wrap" Margin="0,0,0,12"/>
           <TextBlock Text="阅读助手" FontWeight="SemiBold" Margin="0,0,0,4"/>
           <TextBlock Text="点击任务直接生成，可先填写补充要求。" Foreground="#617387" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,9"/>
           <UniformGrid Columns="2" Rows="2" Margin="0,0,-7,7">

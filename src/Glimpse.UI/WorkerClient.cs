@@ -37,6 +37,7 @@ public sealed class WorkerClient : IAsyncDisposable
                 string executable = Path.Combine(AppContext.BaseDirectory, "Worker", "Glimpse.Worker.exe");
                 if (!File.Exists(executable)) throw new FileNotFoundException("Worker executable missing.");
                 var info = new ProcessStartInfo(executable) { UseShellExecute = false, CreateNoWindow = true };
+                info.Environment["GLIMPSE_UI_PROCESS_ID"] = Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 info.ArgumentList.Add("--pipe"); info.ArgumentList.Add(name);
                 info.ArgumentList.Add("--data"); info.ArgumentList.Add(DataDirectory);
                 process = Process.Start(info) ?? throw new IOException("Worker did not start.");
