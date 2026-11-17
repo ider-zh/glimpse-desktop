@@ -49,6 +49,12 @@ internal static class AgentControllerProbes
                 history[0].DocumentRevision == preview.DocumentRevision, "Validated result was not persisted with frozen provenance.");
             await Rejected(() => controller.RunAsync(preview.PreviewId, CancellationToken.None), "Consumed preview could be replayed.");
 
+            var canceledBeforeRun = await controller.PreviewAsync(Request(), CancellationToken.None);
+            int beforeCanceledRun = providerCreations;
+            controller.Cancel(canceledBeforeRun.PreviewId);
+            await Rejected(() => controller.RunAsync(canceledBeforeRun.PreviewId, CancellationToken.None), "A canceled queued preview started generation.");
+            Require(providerCreations == beforeCanceledRun, "Cancel before background dispatch constructed a provider.");
+
             var switchedPreview = await controller.PreviewAsync(Request(), CancellationToken.None);
             var original = current;
             current = Session("Another synthetic session.");

@@ -15,13 +15,14 @@ public partial class DockedToolbarWindow : Window
     public event Action? ToggleObservationRequested;
     public event Action? ReselectRequested;
     public event Action? CloseLensRequested;
-    public event Action<string, string>? PromptRequested;
+    public event Action? SettingsRequested;
+    public Func<string, string, CancellationToken, Task<AgentResult>>? GenerateAsync { get; set; }
     public bool IsCaptureExcluded { get; private set; }
 
     private PixelRect? captureRect;
     private bool ready, ownerClosing, userClosing, followQueued, hasText, observing, closed;
     private string status = "等待开始观察";
-    private const double PreferredWidth = 320, PreferredHeight = 490;
+    private const double PreferredWidth = 360, PreferredHeight = 760;
 
     public DockedToolbarWindow()
     {
@@ -37,7 +38,7 @@ public partial class DockedToolbarWindow : Window
         };
         SizeChanged += (_, _) => QueueFollow();
         Closing += OnClosing;
-        Closed += (_, _) => { closed = true; ready = false; PromptInput.Clear(); };
+        Closed += (_, _) => { closed = true; ready = false; CancelGeneration(); PromptInput.Clear(); ClearAgentResults(); ClearPreview(); };
     }
     public DockedToolbarWindow(PixelRect rect) : this() => captureRect = rect;
 
@@ -47,8 +48,11 @@ public partial class DockedToolbarWindow : Window
         { Dispatcher.BeginInvoke(() => UpdateState(observing, status, blockCount, characterCount, hasSessionText)); return; }
         this.observing = observing;
         this.status = string.IsNullOrWhiteSpace(status) ? observing ? "正在观察选定区域" : "观察已停止" : status;
+        bool textAvailabilityChanged = hasText != hasSessionText;
         hasText = hasSessionText;
         Counts.Text = $"已记录 {Math.Max(0, blockCount):N0} 块 · {Math.Max(0, characterCount):N0} 字";
+        if (textAvailabilityChanged && !generating && !resultShown)
+            SetAgentStatus(hasText ? "点击任务，或发送自定义问题。" : "先记录一些文字，再点击任务或发送问题。");
         UpdateControls();
     }
 
@@ -97,44 +101,17 @@ public partial class DockedToolbarWindow : Window
         ObserveButton.Content = observing ? "停止观察" : "开始观察";
         ObserveButton.ToolTip = observing ? "立即停止截图和识别，已记录的内容保留" : "开始观察框内的本地识别";
         ObserveButton.IsEnabled = IsCaptureExcluded;
-        PreviewButton.IsEnabled = hasText;
-        PromptHint.Text = hasText ? "先检查上下文，再由你点击生成。" : "先记录一些文字，再预览上下文。";
+        UpdateAgentControls();
     }
     private void OpenRecords(object sender, RoutedEventArgs e) => RecordsRequested?.Invoke();
     private void ToggleObservation(object sender, RoutedEventArgs e) => ToggleObservationRequested?.Invoke();
     private void Reselect(object sender, RoutedEventArgs e) => ReselectRequested?.Invoke();
     private void CloseLens(object sender, RoutedEventArgs e) => RequestUserClose();
-    private void OpenPromptPreview(object sender, RoutedEventArgs e) => RequestPreview();
-    private void RequestPreview()
-    {
-        if (!hasText || PromptTask.SelectedItem is not ComboBoxItem { Tag: string task }) return;
-        if (task == "custom" && string.IsNullOrWhiteSpace(PromptInput.Text))
-        {
-            PromptError.Text = "请先填写要问的问题。"; PromptError.Visibility = Visibility.Visible;
-            PromptInput.Focus(); return;
-        }
-        PromptError.Visibility = Visibility.Collapsed;
-        PromptRequested?.Invoke(task, PromptInput.Text);
-    }
-    private void TaskChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (PromptLabel is null) return;
-        bool custom = PromptTask.SelectedItem is ComboBoxItem { Tag: "custom" };
-        PromptLabel.Text = custom ? "你的问题" : "补充要求（可选）";
-        System.Windows.Automation.AutomationProperties.SetName(PromptInput, custom ? "给阅读助手的问题" : "给阅读助手的补充要求");
-        PromptError.Visibility = Visibility.Collapsed;
-    }
-    private void PromptEdited(object sender, TextChangedEventArgs e)
-    { if (PromptError is not null) PromptError.Visibility = Visibility.Collapsed; }
-    private void PromptKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.Control) return;
-        e.Handled = true; RequestPreview();
-    }
     private void RequestUserClose()
     {
         if (ownerClosing || userClosing) return;
         userClosing = true;
+        CancelGeneration();
         try { CloseLensRequested?.Invoke(); }
         finally { if (IsVisible) { ownerClosing = true; Close(); } }
     }
@@ -150,6 +127,7 @@ public partial class DockedToolbarWindow : Window
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(CloseForOwner); return; }
         if (closed) return;
+        CancelGeneration();
         ownerClosing = true; Close();
     }
 }

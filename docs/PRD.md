@@ -64,6 +64,8 @@ Gap warnings are orthogonal to states. Green never means OCR was perfect or all 
 
 Quick actions: “帮我评论”, “帮我回复”, “总结”, “给我建议”. A free-form prompt is also supported. Context-sensitive toolbar recommendations should initially use local heuristics, not background LLM calls.
 
+Owner update (2026-11-17): the attached sidebar exposes these as direct one-click commands with inline answers, cancellation and copying, plus a custom question send action and explicit settings shortcut. Each click builds filtered context and triggers one request, without opening the inspector or requiring another preview confirmation. Optional last-payload inspection remains inline; the inspector retains its existing preview-first flow. Preserve previous answers during retries/cancel/failure and keep progress/cancel visible while reading results.
+
 Suggested card schema families: `comment.v1` (options with tone/text), `reply.v1`, `summary.v1` (key points), `analysis.v1` (findings/caveats). Validate server/model output against a local schema; on failure show a plain-text fallback and an error indicator. Copy actions must copy exactly the visible proposed text. Never auto-submit it.
 
 ## 7. Privacy and safety
